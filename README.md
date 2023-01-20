@@ -1,4 +1,6 @@
-Tech demo for potential future Legion Prof interface.
+# Legion Prof Viewer
+
+Legion Prof frontend.
 
 ### TODO
 
@@ -18,7 +20,7 @@ Tech demo for potential future Legion Prof interface.
 - [x] Fetch from data source
 - [x] Bug in single-row slots not rendered at bottom
 - [x] Render data in tiles
-- [ ] Long-running tasks that cross tile boundary
+- [x] Long-running tasks that cross tile boundary
 - [ ] Asynchronous data fetch
 - [ ] Horizontal pan (including drag, keyboard, horizontal scroll wheel)
 - [ ] Vertical zoom
