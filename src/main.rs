@@ -163,20 +163,20 @@ impl DataSource for RandomDataSource {
                             kind.chars().next().unwrap().to_lowercase(),
                             proc
                         ),
-                        long_name: format!("Node {} {} {}", node, kind, proc),
+                        long_name: format!("Node {node} {kind} {proc}"),
                         max_rows: rows,
                     });
                 }
                 kind_slots.push(EntryInfo::Panel {
                     short_name: kind.to_lowercase(),
-                    long_name: format!("Node {} {}", node, kind),
+                    long_name: format!("Node {node} {kind}"),
                     summary: Some(Box::new(EntryInfo::Summary { color })),
                     slots: proc_slots,
                 });
             }
             node_slots.push(EntryInfo::Panel {
-                short_name: format!("n{}", node),
-                long_name: format!("Node {}", node),
+                short_name: format!("n{node}"),
+                long_name: format!("Node {node}"),
                 summary: None,
                 slots: kind_slots,
             });

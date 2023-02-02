@@ -413,16 +413,16 @@ impl Slot {
                         for (name, field) in &item.fields {
                             match field {
                                 Field::I64(value) => {
-                                    ui.label(format!("{}: {}", name, value));
+                                    ui.label(format!("{name}: {value}"));
                                 }
                                 Field::U64(value) => {
-                                    ui.label(format!("{}: {}", name, value));
+                                    ui.label(format!("{name}: {value}"));
                                 }
                                 Field::String(value) => {
-                                    ui.label(format!("{}: {}", name, value));
+                                    ui.label(format!("{name}: {value}"));
                                 }
                                 Field::Interval(value) => {
-                                    ui.label(format!("{}: {}", name, value));
+                                    ui.label(format!("{name}: {value}"));
                                 }
                                 Field::Empty => {
                                     ui.label(name);
@@ -916,13 +916,13 @@ impl ProfApp {
             );
             egui::Frame::popup(ui.style()).show(&mut popup_ui, |ui| {
                 if let Some(drag) = drag_interval {
-                    ui.label(format!("{}", drag));
+                    ui.label(format!("{drag}"));
                 } else {
-                    ui.label(format!("t={}", time));
+                    ui.label(format!("t={time}"));
                 }
             });
 
-            // ui.show_tooltip_at("timestamp_tooltip", Some(top), format!("t={}", time));
+            // ui.show_tooltip_at("timestamp_tooltip", Some(top), format!("t={time}"));
         }
     }
 }
@@ -1022,7 +1022,7 @@ impl eframe::App for ProfApp {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     ui.separator();
-                    ui.label(format!("FPS: {:.0}", _fps));
+                    ui.label(format!("FPS: {_fps:.0}"));
                 }
             });
         });

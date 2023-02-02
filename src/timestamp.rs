@@ -27,11 +27,11 @@ impl fmt::Display for Timestamp {
             remainder_divisor = divisor / 1_000;
             unit_name = "us";
         } else {
-            return write!(f, "{} {}", ns, unit_name);
+            return write!(f, "{ns} {unit_name}");
         }
         let units = ns / divisor;
         let remainder = (ns % divisor) / remainder_divisor;
-        write!(f, "{}.{:0>3} {}", units, remainder, unit_name)
+        write!(f, "{units}.{remainder:0>3} {unit_name}")
     }
 }
 
