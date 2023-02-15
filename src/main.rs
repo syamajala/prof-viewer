@@ -6,7 +6,7 @@ use rand::Rng;
 use std::collections::BTreeMap;
 
 use legion_prof_viewer::data::{
-    DataSource, EntryID, EntryInfo, Field, Item, ItemMeta, ProfUID, SlotMetaTile, SlotTile,
+    DataSource, EntryID, EntryInfo, Field, Item, ItemMeta, ItemUID, SlotMetaTile, SlotTile,
     SummaryTile, TileID, UtilPoint,
 };
 use legion_prof_viewer::timestamp::{Interval, Timestamp};
@@ -20,18 +20,18 @@ fn main() {
 
 type SlotCacheTile = (Vec<Vec<Item>>, Vec<Vec<ItemMeta>>);
 
-struct ProfUIDGenerator {
-    next: ProfUID,
+struct ItemUIDGenerator {
+    next: ItemUID,
 }
 
-impl Default for ProfUIDGenerator {
+impl Default for ItemUIDGenerator {
     fn default() -> Self {
-        Self { next: ProfUID(0) }
+        Self { next: ItemUID(0) }
     }
 }
 
-impl ProfUIDGenerator {
-    fn next(&mut self) -> ProfUID {
+impl ItemUIDGenerator {
+    fn next(&mut self) -> ItemUID {
         let result = self.next;
         self.next.0 += 1;
         result
@@ -45,7 +45,7 @@ struct RandomDataSource {
     summary_cache: BTreeMap<EntryID, Vec<UtilPoint>>,
     slot_cache: BTreeMap<EntryID, SlotCacheTile>,
     rng: rand::rngs::ThreadRng,
-    prof_uid_generator: ProfUIDGenerator,
+    item_uid_generator: ItemUIDGenerator,
 }
 
 impl RandomDataSource {
@@ -123,10 +123,10 @@ impl RandomDataSource {
                         _ => Color32::WHITE,
                     };
 
-                    let prof_uid = self.prof_uid_generator.next();
+                    let item_uid = self.item_uid_generator.next();
                     row_items.push(Item {
                         interval: Interval::new(start, stop),
-                        prof_uid,
+                        item_uid,
                         color,
                     });
                     row_item_metas.push(ItemMeta {
@@ -136,7 +136,7 @@ impl RandomDataSource {
                                 "Interval".to_owned(),
                                 Field::Interval(Interval::new(start, stop)),
                             ),
-                            ("Prof UID".to_owned(), Field::U64(prof_uid.0)),
+                            ("Item UID".to_owned(), Field::U64(item_uid.0)),
                         ],
                     });
                 }

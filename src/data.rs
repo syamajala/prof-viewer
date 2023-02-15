@@ -50,12 +50,12 @@ pub enum Field {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
-pub struct ProfUID(pub u64);
+pub struct ItemUID(pub u64);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Item {
     pub interval: Interval,
-    pub prof_uid: ProfUID,
+    pub item_uid: ItemUID,
     pub color: Color32,
 }
 
