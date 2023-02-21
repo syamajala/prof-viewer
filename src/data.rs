@@ -54,13 +54,14 @@ pub struct ItemUID(pub u64);
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Item {
-    pub interval: Interval,
     pub item_uid: ItemUID,
+    pub interval: Interval,
     pub color: Color32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ItemMeta {
+    pub item_uid: ItemUID,
     pub title: String,
     pub fields: Vec<(String, Field)>,
 }
