@@ -861,6 +861,10 @@ impl ProfApp {
     }
 
     fn zoom(cx: &mut Context, interval: Interval) {
+        if cx.view_interval == interval {
+            return;
+        }
+
         cx.view_interval = interval;
         cx.zoom_state.levels.truncate(cx.zoom_state.index + 1);
         cx.zoom_state.levels.push(cx.view_interval);
@@ -884,6 +888,41 @@ impl ProfApp {
         cx.zoom_state.index += 1;
         cx.view_interval = cx.zoom_state.levels[cx.zoom_state.index];
         cx.zoom_state.zoom_count = 0;
+    }
+
+    fn keyboard(ctx: &egui::Context, cx: &mut Context) {
+        // Focus is elsewhere, don't check any keys
+        if ctx.memory(|m| m.focus().is_some()) {
+            return;
+        }
+
+        enum Actions {
+            UndoZoom,
+            RedoZoom,
+            ResetZoom,
+            NoAction,
+        }
+        let action = ctx.input(|i| {
+            if i.modifiers.ctrl {
+                if i.key_pressed(egui::Key::ArrowLeft) {
+                    Actions::UndoZoom
+                } else if i.key_pressed(egui::Key::ArrowRight) {
+                    Actions::RedoZoom
+                } else if i.key_pressed(egui::Key::Num0) {
+                    Actions::ResetZoom
+                } else {
+                    Actions::NoAction
+                }
+            } else {
+                Actions::NoAction
+            }
+        });
+        match action {
+            Actions::UndoZoom => ProfApp::undo_zoom(cx),
+            Actions::RedoZoom => ProfApp::redo_zoom(cx),
+            Actions::ResetZoom => ProfApp::zoom(cx, cx.total_interval),
+            Actions::NoAction => {}
+        }
     }
 
     fn cursor(ui: &mut egui::Ui, cx: &mut Context) {
@@ -1124,13 +1163,7 @@ impl eframe::App for ProfApp {
             Self::cursor(ui, cx);
         });
 
-        if ctx.memory(|m| m.focus().is_none()) {
-            if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
-                ProfApp::undo_zoom(cx);
-            } else if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
-                ProfApp::redo_zoom(cx);
-            }
-        }
+        Self::keyboard(ctx, cx);
     }
 }
 
