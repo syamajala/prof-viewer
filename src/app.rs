@@ -862,7 +862,7 @@ impl ProfApp {
 
     fn zoom(cx: &mut Context, interval: Interval) {
         cx.view_interval = interval;
-        cx.zoom_state.levels.truncate(cx.zoom_state.index+1);
+        cx.zoom_state.levels.truncate(cx.zoom_state.index + 1);
         cx.zoom_state.levels.push(cx.view_interval);
         cx.zoom_state.index = cx.zoom_state.levels.len() - 1;
         cx.zoom_state.zoom_count = 0;
@@ -1098,7 +1098,7 @@ impl eframe::App for ProfApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Use body font to figure out how tall to draw rectangles.
             let font_id = TextStyle::Body.resolve(ui.style());
-            let row_height = ui.fonts().row_height(&font_id);
+            let row_height = ui.fonts(|f| f.row_height(&font_id));
             // Just set this on every frame for now
             cx.row_height = row_height;
 
@@ -1124,10 +1124,10 @@ impl eframe::App for ProfApp {
             Self::cursor(ui, cx);
         });
 
-        if ctx.memory().focus().is_none() {
-            if ctx.input().key_pressed(egui::Key::ArrowLeft) {
+        if ctx.memory(|m| m.focus().is_none()) {
+            if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
                 ProfApp::undo_zoom(cx);
-            } else if ctx.input().key_pressed(egui::Key::ArrowRight) {
+            } else if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
                 ProfApp::redo_zoom(cx);
             }
         }
@@ -1218,7 +1218,8 @@ pub fn start(data_source: Box<dyn DataSource>, extra_source: Option<Box<dyn Data
         "Legion Prof",
         native_options,
         Box::new(|cc| Box::new(ProfApp::new(cc, data_source, extra_source))),
-    );
+    )
+    .expect("failed to start eframe");
 }
 
 #[cfg(target_arch = "wasm32")]
