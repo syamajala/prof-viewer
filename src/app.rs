@@ -862,6 +862,7 @@ impl ProfApp {
 
     fn zoom(cx: &mut Context, interval: Interval) {
         cx.view_interval = interval;
+        cx.zoom_state.levels.truncate(cx.zoom_state.index+1);
         cx.zoom_state.levels.push(cx.view_interval);
         cx.zoom_state.index = cx.zoom_state.levels.len() - 1;
         cx.zoom_state.zoom_count = 0;
