@@ -112,6 +112,8 @@ struct Context {
     // only know it when we render slots. So stash it here.
     slot_rect: Option<Rect>,
 
+    toggle_dark_mode: bool,
+
     debug: bool,
 
     zoom_state: ZoomState,
@@ -837,8 +839,6 @@ impl ProfApp {
         // This is also where you can customized the look at feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
-        cc.egui_ctx.set_visuals(egui::Visuals::light());
-
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         let mut result: Self = if let Some(storage) = cc.storage {
@@ -858,6 +858,13 @@ impl ProfApp {
         {
             result.last_update = Some(Instant::now());
         }
+
+        let theme = if result.cx.toggle_dark_mode {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
+        cc.egui_ctx.set_visuals(theme);
 
         result
     }
@@ -1116,6 +1123,29 @@ impl eframe::App for ProfApp {
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label("powered by ");
+                    ui.hyperlink_to("egui", "https://github.com/emilk/egui");
+                    ui.label(" and ");
+                    ui.hyperlink_to(
+                        "eframe",
+                        "https://github.com/emilk/egui/tree/master/crates/eframe",
+                    );
+                    ui.label(".");
+                });
+
+                ui.horizontal(|ui| {
+                    // swap to dark mode
+                    let mut current_theme = if cx.toggle_dark_mode {
+                        egui::Visuals::dark()
+                    } else {
+                        egui::Visuals::light()
+                    };
+
+                    current_theme.light_dark_radio_buttons(ui);
+                    if current_theme.dark_mode != cx.toggle_dark_mode {
+                        cx.toggle_dark_mode = current_theme.dark_mode;
+                        ctx.set_visuals(current_theme);
+                    }
 
                     let debug_color = if cx.debug {
                         ui.visuals().hyperlink_color
@@ -1123,9 +1153,10 @@ impl eframe::App for ProfApp {
                         ui.visuals().text_color()
                     };
 
-                    let button =
-                        egui::Button::new(egui::RichText::new("🛠").color(debug_color).size(18.0))
-                            .frame(false);
+                    let button = egui::Button::new(
+                        egui::RichText::new("🛠 Debug").color(debug_color).size(12.0),
+                    )
+                    .frame(true);
                     if ui
                         .add(button)
                         .on_hover_text(format!(
@@ -1136,14 +1167,6 @@ impl eframe::App for ProfApp {
                     {
                         cx.debug = !cx.debug;
                     }
-                    ui.label("powered by ");
-                    ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-                    ui.label(" and ");
-                    ui.hyperlink_to(
-                        "eframe",
-                        "https://github.com/emilk/egui/tree/master/crates/eframe",
-                    );
-                    ui.label(".");
                 });
 
                 egui::warn_if_debug_build(ui);
