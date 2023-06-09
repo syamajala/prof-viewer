@@ -10,10 +10,16 @@ use crate::timestamp::{Interval, Timestamp};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct EntryID(Vec<i64>);
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum EntryIndex {
     Summary,
     Slot(u64),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DataSourceInfo {
+    pub entry_info: EntryInfo,
+    pub interval: Interval,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -69,28 +75,50 @@ pub struct ItemMeta {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct TileID(pub Interval);
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct TileSet {
+    pub tiles: Vec<Vec<TileID>>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SummaryTile {
-    pub tile_id: TileID,
+pub struct SummaryTileData {
     pub utilization: Vec<UtilPoint>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SlotTile {
+pub struct SummaryTile {
+    pub entry_id: EntryID,
     pub tile_id: TileID,
+    pub data: SummaryTileData,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SlotTileData {
     pub items: Vec<Vec<Item>>, // row -> [item]
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SlotMetaTile {
+pub struct SlotTile {
+    pub entry_id: EntryID,
     pub tile_id: TileID,
+    pub data: SlotTileData,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SlotMetaTileData {
     pub items: Vec<Vec<ItemMeta>>, // row -> [item]
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SlotMetaTile {
+    pub entry_id: EntryID,
+    pub tile_id: TileID,
+    pub data: SlotMetaTileData,
+}
+
 pub trait DataSource {
-    fn interval(&mut self) -> Interval;
-    fn fetch_info(&mut self) -> &EntryInfo;
-    fn request_tiles(&mut self, entry_id: &EntryID, request_interval: Interval) -> Vec<TileID>;
+    fn fetch_info(&mut self) -> DataSourceInfo;
+    fn fetch_tile_set(&mut self) -> TileSet;
     fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SummaryTile;
     fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SlotTile;
     fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SlotMetaTile;

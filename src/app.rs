@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
@@ -6,8 +6,10 @@ use egui::{Align2, Color32, NumExt, Pos2, Rect, ScrollArea, Slider, Stroke, Text
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
-    DataSource, EntryID, EntryInfo, Field, SlotMetaTile, SlotTile, TileID, UtilPoint,
+    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, SlotMetaTileData, SlotTileData,
+    SummaryTileData, TileID, UtilPoint,
 };
+use crate::deferred_data::DeferredDataSource;
 use crate::timestamp::Interval;
 
 /// Overview:
@@ -43,7 +45,7 @@ use crate::timestamp::Interval;
 struct Summary {
     entry_id: EntryID,
     color: Color32,
-    utilization: Vec<UtilPoint>,
+    tiles: BTreeMap<TileID, Option<SummaryTileData>>,
     last_view_interval: Option<Interval>,
 }
 
@@ -53,8 +55,9 @@ struct Slot {
     long_name: String,
     expanded: bool,
     max_rows: u64,
-    tiles: Vec<SlotTile>,
-    tile_metas: BTreeMap<TileID, SlotMetaTile>,
+    tile_ids: Vec<TileID>,
+    tiles: BTreeMap<TileID, Option<SlotTileData>>,
+    tile_metas: BTreeMap<TileID, Option<SlotMetaTileData>>,
     last_view_interval: Option<Interval>,
 }
 
@@ -76,7 +79,7 @@ struct Config {
     // This is just for the local profile
     interval: Interval,
 
-    data_source: Box<dyn DataSource>,
+    data_source: Box<dyn DeferredDataSource>,
 }
 
 struct Window {
@@ -122,11 +125,12 @@ struct Context {
 #[derive(Default, Deserialize, Serialize)]
 #[serde(default)] // deserialize missing fields as default value
 struct ProfApp {
+    // Data sources waiting to be turned into windows.
     #[serde(skip)]
-    windows: Vec<Window>,
+    pending_data_sources: VecDeque<Box<dyn DeferredDataSource>>,
 
     #[serde(skip)]
-    extra_source: Option<Box<dyn DataSource>>,
+    windows: Vec<Window>,
 
     cx: Context,
 
@@ -141,6 +145,9 @@ trait Entry {
     fn entry_id(&self) -> &EntryID;
     fn label_text(&self) -> &str;
     fn hover_text(&self) -> &str;
+
+    fn find_slot(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot>;
+    fn find_summary(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary>;
 
     fn label(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let response = ui.allocate_rect(
@@ -196,17 +203,15 @@ trait Entry {
 
 impl Summary {
     fn clear(&mut self) {
-        self.utilization.clear();
+        self.tiles.clear();
     }
 
-    fn inflate(&mut self, config: &mut Config, cx: &Context) {
-        let interval = config.interval.intersection(cx.view_interval);
-        let tiles = config.data_source.request_tiles(&self.entry_id, interval);
-        for tile_id in tiles {
-            let tile = config
+    fn inflate(&mut self, config: &mut Config, cx: &mut Context) {
+        for tile_id in config.request_tiles(cx.view_interval) {
+            config
                 .data_source
                 .fetch_summary_tile(&self.entry_id, tile_id);
-            self.utilization.extend(tile.utilization);
+            self.tiles.insert(tile_id, None);
         }
     }
 }
@@ -217,7 +222,7 @@ impl Entry for Summary {
             Self {
                 entry_id,
                 color: *color,
-                utilization: Vec::new(),
+                tiles: BTreeMap::new(),
                 last_view_interval: None,
             }
         } else {
@@ -233,6 +238,16 @@ impl Entry for Summary {
     }
     fn hover_text(&self) -> &str {
         "Utilization Plot of Average Usage Over Time"
+    }
+
+    fn find_slot(&mut self, _entry_id: &EntryID, _level: u64) -> Option<&mut Slot> {
+        unreachable!()
+    }
+
+    fn find_summary(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary> {
+        assert_eq!(entry_id.level(), level);
+        assert_eq!(entry_id.index(level - 1)?, EntryIndex::Summary);
+        Some(self)
     }
 
     fn content(
@@ -256,7 +271,7 @@ impl Entry for Summary {
             self.clear();
         }
         self.last_view_interval = Some(cx.view_interval);
-        if self.utilization.is_empty() {
+        if self.tiles.is_empty() {
             self.inflate(config, cx);
         }
 
@@ -288,37 +303,42 @@ impl Entry for Summary {
         let mut last_util: Option<&UtilPoint> = None;
         let mut last_point: Option<Pos2> = None;
         let mut hover_util = None;
-        for util in &self.utilization {
-            let mut point = util_to_screen(util);
-            if let Some(mut last) = last_point {
-                let last_util = last_util.unwrap();
-                if cx
-                    .view_interval
-                    .overlaps(Interval::new(last_util.time, util.time))
-                {
-                    // Interpolate when out of view
-                    if last.x < rect.min.x {
-                        last = interpolate(last, point, rect.min.x);
-                    }
-                    if point.x > rect.max.x {
-                        point = interpolate(last, point, rect.max.x);
-                    }
+        for tile in self.tiles.values().flatten() {
+            for util in &tile.utilization {
+                let mut point = util_to_screen(util);
+                if let Some(mut last) = last_point {
+                    let last_util = last_util.unwrap();
+                    if cx
+                        .view_interval
+                        .overlaps(Interval::new(last_util.time, util.time))
+                    {
+                        // Interpolate when out of view
+                        if last.x < rect.min.x {
+                            last = interpolate(last, point, rect.min.x);
+                        }
+                        if point.x > rect.max.x {
+                            point = interpolate(last, point, rect.max.x);
+                        }
 
-                    ui.painter().line_segment([last, point], stroke);
+                        ui.painter().line_segment([last, point], stroke);
 
-                    if let Some(hover) = hover_pos {
-                        if last.x <= hover.x && hover.x < point.x {
-                            let interp = interpolate(last, point, hover.x);
-                            ui.painter()
-                                .circle_stroke(interp, TOOLTIP_RADIUS, visuals.fg_stroke);
-                            hover_util = Some(screen_to_util(interp));
+                        if let Some(hover) = hover_pos {
+                            if last.x <= hover.x && hover.x < point.x {
+                                let interp = interpolate(last, point, hover.x);
+                                ui.painter().circle_stroke(
+                                    interp,
+                                    TOOLTIP_RADIUS,
+                                    visuals.fg_stroke,
+                                );
+                                hover_util = Some(screen_to_util(interp));
+                            }
                         }
                     }
                 }
-            }
 
-            last_point = Some(point);
-            last_util = Some(util);
+                last_point = Some(point);
+                last_util = Some(util);
+            }
         }
 
         if let Some(util) = hover_util {
@@ -360,25 +380,33 @@ impl Slot {
     }
 
     fn clear(&mut self) {
+        self.tile_ids.clear();
         self.tiles.clear();
         self.tile_metas.clear();
     }
 
-    fn inflate(&mut self, config: &mut Config, cx: &Context) {
-        let interval = config.interval.intersection(cx.view_interval);
-        let tiles = config.data_source.request_tiles(&self.entry_id, interval);
-        for tile_id in tiles {
-            let tile = config.data_source.fetch_slot_tile(&self.entry_id, tile_id);
-            self.tiles.push(tile);
+    fn inflate(&mut self, config: &mut Config, cx: &mut Context) {
+        for tile_id in config.request_tiles(cx.view_interval) {
+            config.data_source.fetch_slot_tile(&self.entry_id, tile_id);
+            self.tile_ids.push(tile_id);
+            self.tiles.insert(tile_id, None);
         }
     }
 
-    fn fetch_meta_tile(&mut self, tile_id: TileID, config: &mut Config) -> &mut SlotMetaTile {
-        self.tile_metas.entry(tile_id).or_insert_with(|| {
-            config
-                .data_source
-                .fetch_slot_meta_tile(&self.entry_id, tile_id)
-        })
+    fn fetch_meta_tile(
+        &mut self,
+        tile_id: TileID,
+        config: &mut Config,
+    ) -> Option<&SlotMetaTileData> {
+        self.tile_metas
+            .entry(tile_id)
+            .or_insert_with(|| {
+                config
+                    .data_source
+                    .fetch_slot_meta_tile(&self.entry_id, tile_id);
+                None
+            })
+            .as_ref()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -394,8 +422,14 @@ impl Slot {
         cx: &mut Context,
     ) -> Option<Pos2> {
         // Hack: can't pass this as an argument because it aliases self.
-        let tile = &self.tiles[tile_index];
-        let tile_id = tile.tile_id;
+        let tile_id = self.tile_ids[tile_index];
+        let tile = self.tiles.get(&tile_id).unwrap();
+
+        if !tile.is_some() {
+            // Tile hasn't finished loading.
+            return hover_pos;
+        }
+        let tile = tile.as_ref().unwrap();
 
         if !cx.view_interval.overlaps(tile_id.0) {
             return hover_pos;
@@ -451,30 +485,34 @@ impl Slot {
         }
 
         if let Some((row, item_idx, item_rect, tile_id)) = interact_item {
-            let tile_meta = self.fetch_meta_tile(tile_id, config);
-            let item_meta = &tile_meta.items[row][item_idx];
-            ui.show_tooltip_ui("task_tooltip", &item_rect, |ui| {
-                ui.label(&item_meta.title);
-                for (name, field) in &item_meta.fields {
-                    match field {
-                        Field::I64(value) => {
-                            ui.label(format!("{name}: {value}"));
-                        }
-                        Field::U64(value) => {
-                            ui.label(format!("{name}: {value}"));
-                        }
-                        Field::String(value) => {
-                            ui.label(format!("{name}: {value}"));
-                        }
-                        Field::Interval(value) => {
-                            ui.label(format!("{name}: {value}"));
-                        }
-                        Field::Empty => {
-                            ui.label(name);
+            if let Some(tile_meta) = self.fetch_meta_tile(tile_id, config) {
+                let item_meta = &tile_meta.items[row][item_idx];
+                ui.show_tooltip_ui("task_tooltip", &item_rect, |ui| {
+                    ui.label(&item_meta.title);
+                    if cx.debug {
+                        ui.label(format!("Item UID: {}", item_meta.item_uid.0));
+                    }
+                    for (name, field) in &item_meta.fields {
+                        match field {
+                            Field::I64(value) => {
+                                ui.label(format!("{name}: {value}"));
+                            }
+                            Field::U64(value) => {
+                                ui.label(format!("{name}: {value}"));
+                            }
+                            Field::String(value) => {
+                                ui.label(format!("{name}: {value}"));
+                            }
+                            Field::Interval(value) => {
+                                ui.label(format!("{name}: {value}"));
+                            }
+                            Field::Empty => {
+                                ui.label(name);
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
 
         hover_pos
@@ -495,7 +533,8 @@ impl Entry for Slot {
                 long_name: long_name.to_owned(),
                 expanded: true,
                 max_rows: *max_rows,
-                tiles: Vec::new(),
+                tile_ids: Vec::new(),
+                tiles: BTreeMap::new(),
                 tile_metas: BTreeMap::new(),
                 last_view_interval: None,
             }
@@ -512,6 +551,16 @@ impl Entry for Slot {
     }
     fn hover_text(&self) -> &str {
         &self.long_name
+    }
+
+    fn find_slot(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot> {
+        assert_eq!(entry_id.level(), level);
+        assert!(entry_id.slot_index(level - 1).is_some());
+        Some(self)
+    }
+
+    fn find_summary(&mut self, _entry_id: &EntryID, _level: u64) -> Option<&mut Summary> {
+        unreachable!()
     }
 
     fn content(
@@ -545,7 +594,7 @@ impl Entry for Slot {
                 .rect(rect, 0.0, visuals.bg_fill, visuals.bg_stroke);
 
             let rows = self.rows();
-            for tile_index in 0..self.tiles.len() {
+            for tile_index in 0..self.tile_ids.len() {
                 hover_pos =
                     self.render_tile(tile_index, rows, hover_pos, ui, rect, viewport, config, cx);
             }
@@ -663,6 +712,22 @@ impl<S: Entry> Entry for Panel<S> {
         &self.long_name
     }
 
+    fn find_slot(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot> {
+        self.slots
+            .get_mut(entry_id.slot_index(level)? as usize)?
+            .find_slot(entry_id, level + 1)
+    }
+
+    fn find_summary(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary> {
+        if level < entry_id.level() - 1 {
+            self.slots
+                .get_mut(entry_id.slot_index(level)? as usize)?
+                .find_summary(entry_id, level + 1)
+        } else {
+            self.summary.as_mut()?.find_summary(entry_id, level + 1)
+        }
+    }
+
     fn content(
         &mut self,
         ui: &mut egui::Ui,
@@ -732,29 +797,40 @@ impl<S: Entry> Entry for Panel<S> {
 }
 
 impl Config {
-    fn new(mut data_source: Box<dyn DataSource>) -> Self {
-        let max_node = data_source.fetch_info().nodes();
+    fn new(data_source: Box<dyn DeferredDataSource>, info: &DataSourceInfo) -> Self {
+        let max_node = info.entry_info.nodes();
+        let interval = info.interval;
+
         Self {
             min_node: 0,
             max_node,
-
-            interval: data_source.interval(),
-
+            interval,
             data_source,
         }
+    }
+
+    fn request_tiles(&mut self, request_interval: Interval) -> Vec<TileID> {
+        // For now, always return a single tile
+        vec![TileID(request_interval)]
     }
 }
 
 impl Window {
-    fn new(data_source: Box<dyn DataSource>, index: u64) -> Self {
-        let mut config = Config::new(data_source);
-
+    fn new(data_source: Box<dyn DeferredDataSource>, info: &DataSourceInfo, index: u64) -> Self {
         Self {
-            panel: Panel::new(config.data_source.fetch_info(), EntryID::root()),
+            panel: Panel::new(&info.entry_info, EntryID::root()),
             index,
-            kinds: config.data_source.fetch_info().kinds(),
-            config,
+            kinds: info.entry_info.kinds(),
+            config: Config::new(data_source, info),
         }
+    }
+
+    fn find_slot(&mut self, entry_id: &EntryID) -> Option<&mut Slot> {
+        self.panel.find_slot(entry_id, 0)
+    }
+
+    fn find_summary(&mut self, entry_id: &EntryID) -> Option<&mut Summary> {
+        self.panel.find_summary(entry_id, 0)
     }
 
     fn content(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
@@ -833,8 +909,8 @@ impl ProfApp {
     /// Called once before the first frame.
     pub fn new(
         cc: &eframe::CreationContext<'_>,
-        data_source: Box<dyn DataSource>,
-        extra_source: Option<Box<dyn DataSource>>,
+        mut data_source: Box<dyn DeferredDataSource>,
+        extra_source: Option<Box<dyn DeferredDataSource>>,
     ) -> Self {
         // This is also where you can customized the look at feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
@@ -847,12 +923,17 @@ impl ProfApp {
             Default::default()
         };
 
+        result.pending_data_sources.clear();
+
+        data_source.fetch_info();
+        result.pending_data_sources.push_back(data_source);
+
+        if let Some(mut extra_source) = extra_source {
+            extra_source.fetch_info();
+            result.pending_data_sources.push_back(extra_source);
+        }
+
         result.windows.clear();
-        result.windows.push(Window::new(data_source, 0));
-        let window = result.windows.last().unwrap();
-        result.cx.total_interval = window.config.interval;
-        result.extra_source = extra_source;
-        Self::zoom(&mut result.cx, window.config.interval);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -1052,12 +1133,65 @@ impl eframe::App for ProfApp {
     /// Called each time the UI needs repainting.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let Self {
+            pending_data_sources,
             windows,
             cx,
             #[cfg(not(target_arch = "wasm32"))]
             last_update,
             ..
         } = self;
+
+        if let Some(mut source) = pending_data_sources.pop_front() {
+            // We made one request, so we know there is always zero or one
+            // elements in this list.
+            if let Some(info) = source.get_infos().pop() {
+                let window = Window::new(source, &info, windows.len() as u64);
+                if windows.is_empty() {
+                    cx.total_interval = window.config.interval;
+                } else {
+                    cx.total_interval = cx.total_interval.union(window.config.interval);
+                }
+                ProfApp::zoom(cx, cx.total_interval);
+                windows.push(window);
+            } else {
+                pending_data_sources.push_front(source);
+            }
+        }
+
+        for window in windows.iter_mut() {
+            for tile in window.config.data_source.get_summary_tiles() {
+                if let Some(entry) = window.find_summary(&tile.entry_id) {
+                    // If the entry doesn't exist, we already zoomed away and
+                    // are no longer interested in this tile.
+                    entry
+                        .tiles
+                        .entry(tile.tile_id)
+                        .and_modify(|t| *t = Some(tile.data));
+                }
+            }
+
+            for tile in window.config.data_source.get_slot_tiles() {
+                if let Some(entry) = window.find_slot(&tile.entry_id) {
+                    // If the entry doesn't exist, we already zoomed away and
+                    // are no longer interested in this tile.
+                    entry
+                        .tiles
+                        .entry(tile.tile_id)
+                        .and_modify(|t| *t = Some(tile.data));
+                }
+            }
+
+            for tile in window.config.data_source.get_slot_meta_tiles() {
+                if let Some(entry) = window.find_slot(&tile.entry_id) {
+                    // If the entry doesn't exist, we already zoomed away and
+                    // are no longer interested in this tile.
+                    entry
+                        .tile_metas
+                        .entry(tile.tile_id)
+                        .and_modify(|t| *t = Some(tile.data));
+                }
+            }
+        }
 
         let mut _fps = 0.0;
         #[cfg(not(target_arch = "wasm32"))]
@@ -1096,18 +1230,6 @@ impl eframe::App for ProfApp {
                     ui.set_width(ui.available_width());
                     window.controls(ui, cx);
                 });
-            }
-
-            if self.extra_source.is_some() && ui.button("Add Another Profile").clicked() {
-                let extra = self.extra_source.take().unwrap();
-                let mut index = 0;
-                if let Some(last) = windows.last() {
-                    index = last.index + 1;
-                }
-                windows.push(Window::new(extra, index));
-                let window = windows.last_mut().unwrap();
-                cx.total_interval = cx.total_interval.union(window.config.interval);
-                ProfApp::zoom(cx, cx.total_interval);
             }
 
             if ui.button("Reset Zoom Level").clicked() {
@@ -1287,7 +1409,10 @@ impl UiExtra for egui::Ui {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn start(data_source: Box<dyn DataSource>, extra_source: Option<Box<dyn DataSource>>) {
+pub fn start(
+    data_source: Box<dyn DeferredDataSource>,
+    extra_source: Option<Box<dyn DeferredDataSource>>,
+) {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     tracing_subscriber::fmt::init();
 
@@ -1301,7 +1426,10 @@ pub fn start(data_source: Box<dyn DataSource>, extra_source: Option<Box<dyn Data
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn start(data_source: Box<dyn DataSource>, extra_source: Option<Box<dyn DataSource>>) {
+pub fn start(
+    data_source: Box<dyn DeferredDataSource>,
+    extra_source: Option<Box<dyn DeferredDataSource>>,
+) {
     // Make sure panics are logged using `console.error`.
     console_error_panic_hook::set_once();
 
