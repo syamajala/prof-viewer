@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
@@ -1019,6 +1020,12 @@ impl ProfApp {
         // Hack: the UI rect we have at this point is not where the
         // timeline is being drawn. So fish out the coordinates we
         // need to draw the correct rect.
+
+        // Sometimes slot_rect is None when initializing the UI
+        if cx.slot_rect.is_none() {
+            return;
+        }
+
         let ui_rect = ui.min_rect();
         let slot_rect = cx.slot_rect.unwrap();
         let rect = Rect::from_min_max(
@@ -1331,6 +1338,8 @@ impl eframe::App for ProfApp {
         });
 
         Self::keyboard(ctx, cx);
+        // FIXME (Elliott): only do this if we have an active fetch...
+        ctx.request_repaint_after(Duration::from_millis(100));
     }
 }
 

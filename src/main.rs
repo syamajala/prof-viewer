@@ -10,9 +10,22 @@ use legion_prof_viewer::data::{
     SlotMetaTileData, SlotTile, SlotTileData, SummaryTile, SummaryTileData, TileID, TileSet,
     UtilPoint,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
 use legion_prof_viewer::deferred_data::DeferredDataSourceWrapper;
 use legion_prof_viewer::timestamp::{Interval, Timestamp};
 
+#[cfg(target_arch = "wasm32")]
+use legion_prof_viewer::console_log;
+#[cfg(target_arch = "wasm32")]
+use legion_prof_viewer::http::client::HTTPClientDataSource;
+#[cfg(target_arch = "wasm32")]
+use url::Url;
+
+#[cfg(target_arch = "wasm32")]
+const DEFAULT_URL: &str = "http://127.0.0.1:8080";
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     legion_prof_viewer::app::start(
         Box::new(DeferredDataSourceWrapper::new(
@@ -23,6 +36,26 @@ fn main() {
         >::default(
         )))),
     );
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    let loc: web_sys::Location = web_sys::window().unwrap().location();
+    let href: String = loc.href().expect("Unable to get window URL");
+    let browser_url = Url::parse(&href).expect("Unable to parse location URL");
+
+    let url = Url::parse(
+        browser_url
+            .query_pairs()
+            .find(|(key, _)| key == "url")
+            .map(|(_, value)| value)
+            .as_deref()
+            .unwrap_or(DEFAULT_URL),
+    )
+    .expect("Unable to parse query URL");
+
+    console_log!("Initializing Legion Profiler Viewer");
+    legion_prof_viewer::app::start(Box::new(HTTPClientDataSource::new(url)), None);
 }
 
 type SlotCacheTile = (Vec<Vec<Item>>, Vec<Vec<ItemMeta>>);

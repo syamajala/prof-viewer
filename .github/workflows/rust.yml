@@ -13,12 +13,24 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: 1.67.1
           override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --no-default-features
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --no-default-features --features client
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --no-default-features --features server
       - uses: actions-rs/cargo@v1
         with:
           command: check
@@ -28,7 +40,7 @@ jobs:
     name: Check wasm32
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -38,13 +50,17 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --features client --lib --target wasm32-unknown-unknown
+          args: --no-default-features --lib --target wasm32-unknown-unknown
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --no-default-features --features client --lib --target wasm32-unknown-unknown
 
   test:
     name: Test Suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -54,13 +70,13 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --lib
+          args: --lib --all-features
 
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -76,7 +92,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
@@ -86,13 +102,13 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings
+          args: --all-features -- -D warnings
 
   trunk:
     name: trunk
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
