@@ -10,7 +10,7 @@ use crate::data::{
     DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, SlotMetaTileData, SlotTileData,
     SummaryTileData, TileID, UtilPoint,
 };
-use crate::deferred_data::DeferredDataSource;
+use crate::deferred_data::{CountingDeferredDataSource, DeferredDataSource};
 use crate::timestamp::Interval;
 
 /// Overview:
@@ -80,7 +80,7 @@ struct Config {
     // This is just for the local profile
     interval: Interval,
 
-    data_source: Box<dyn DeferredDataSource>,
+    data_source: CountingDeferredDataSource<Box<dyn DeferredDataSource>>,
 }
 
 struct Window {
@@ -806,7 +806,7 @@ impl Config {
             min_node: 0,
             max_node,
             interval,
-            data_source,
+            data_source: CountingDeferredDataSource::new(data_source),
         }
     }
 
@@ -1338,8 +1338,14 @@ impl eframe::App for ProfApp {
         });
 
         Self::keyboard(ctx, cx);
-        // FIXME (Elliott): only do this if we have an active fetch...
-        ctx.request_repaint_after(Duration::from_millis(100));
+
+        // Keep repainting as long as we have outstanding requests.
+        if windows
+            .iter()
+            .any(|w| w.config.data_source.outstanding_requests() > 0)
+        {
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
     }
 }
 
