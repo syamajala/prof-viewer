@@ -8,9 +8,7 @@ pub mod server;
 
 #[cfg(feature = "client")]
 pub mod fetch;
-#[cfg(feature = "client")]
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "client", not(target_arch = "wasm32")))]
 pub mod fetch_native;
-#[cfg(feature = "client")]
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(feature = "client", target_arch = "wasm32"))]
 pub mod fetch_web;
