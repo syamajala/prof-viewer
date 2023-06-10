@@ -15,8 +15,8 @@ pub trait DeferredDataSource {
     fn get_slot_meta_tiles(&mut self) -> Vec<SlotMetaTile>;
 }
 
-pub struct DeferredDataSourceWrapper {
-    data_source: Box<dyn DataSourceMut>,
+pub struct DeferredDataSourceWrapper<T: DataSourceMut> {
+    data_source: T,
     infos: Vec<DataSourceInfo>,
     tile_sets: Vec<TileSet>,
     summary_tiles: Vec<SummaryTile>,
@@ -24,8 +24,8 @@ pub struct DeferredDataSourceWrapper {
     slot_meta_tiles: Vec<SlotMetaTile>,
 }
 
-impl DeferredDataSourceWrapper {
-    pub fn new(data_source: Box<dyn DataSourceMut>) -> Self {
+impl<T: DataSourceMut> DeferredDataSourceWrapper<T> {
+    pub fn new(data_source: T) -> Self {
         Self {
             data_source,
             infos: Vec::new(),
@@ -37,7 +37,7 @@ impl DeferredDataSourceWrapper {
     }
 }
 
-impl DeferredDataSource for DeferredDataSourceWrapper {
+impl<T: DataSourceMut> DeferredDataSource for DeferredDataSourceWrapper<T> {
     fn fetch_info(&mut self) {
         self.infos.push(self.data_source.fetch_info());
     }

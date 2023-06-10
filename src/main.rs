@@ -28,13 +28,10 @@ const DEFAULT_URL: &str = "http://127.0.0.1:8080";
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     legion_prof_viewer::app::start(
-        Box::new(DeferredDataSourceWrapper::new(
-            Box::<RandomDataSource>::default(),
-        )),
-        Some(Box::new(DeferredDataSourceWrapper::new(Box::<
-            RandomDataSource,
-        >::default(
-        )))),
+        Box::new(DeferredDataSourceWrapper::new(RandomDataSource::default())),
+        Some(Box::new(DeferredDataSourceWrapper::new(
+            RandomDataSource::default(),
+        ))),
     );
 }
 
