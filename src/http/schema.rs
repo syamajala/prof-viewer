@@ -7,3 +7,10 @@ pub struct TileRequest {
     pub entry_id: EntryID,
     pub tile_id: TileID,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename = "TileRequest")]
+pub struct TileRequestRef<'a> {
+    pub entry_id: &'a EntryID,
+    pub tile_id: TileID,
+}

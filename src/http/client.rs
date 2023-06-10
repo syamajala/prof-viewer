@@ -12,7 +12,7 @@ use url::Url;
 use crate::data::{DataSourceInfo, EntryID, SlotMetaTile, SlotTile, SummaryTile, TileID, TileSet};
 use crate::deferred_data::DeferredDataSource;
 use crate::http::fetch::{fetch, DataSourceResponse};
-use crate::http::schema::TileRequest;
+use crate::http::schema::TileRequestRef;
 
 pub struct HTTPClientDataSource {
     pub baseurl: Url,
@@ -80,11 +80,7 @@ impl DeferredDataSource for HTTPClientDataSource {
 
     fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
         let url = self.baseurl.join("/summary_tile").expect("invalid baseurl");
-        let body = serde_json::to_string(&TileRequest {
-            entry_id: entry_id.clone(),
-            tile_id,
-        })
-        .unwrap();
+        let body = serde_json::to_string(&TileRequestRef { entry_id, tile_id }).unwrap();
         self.request::<SummaryTile>(url, body, self.summary_tiles.clone());
     }
 
@@ -94,11 +90,7 @@ impl DeferredDataSource for HTTPClientDataSource {
 
     fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
         let url = self.baseurl.join("/slot_tile").expect("invalid baseurl");
-        let body = serde_json::to_string(&TileRequest {
-            entry_id: entry_id.clone(),
-            tile_id,
-        })
-        .unwrap();
+        let body = serde_json::to_string(&TileRequestRef { entry_id, tile_id }).unwrap();
         self.request::<SlotTile>(url, body, self.slot_tiles.clone());
     }
 
@@ -111,11 +103,7 @@ impl DeferredDataSource for HTTPClientDataSource {
             .baseurl
             .join("/slot_meta_tile")
             .expect("invalid baseurl");
-        let body = serde_json::to_string(&TileRequest {
-            entry_id: entry_id.clone(),
-            tile_id,
-        })
-        .unwrap();
+        let body = serde_json::to_string(&TileRequestRef { entry_id, tile_id }).unwrap();
         self.request::<SlotMetaTile>(url, body, self.slot_meta_tiles.clone());
     }
 
