@@ -910,8 +910,7 @@ impl ProfApp {
     /// Called once before the first frame.
     pub fn new(
         cc: &eframe::CreationContext<'_>,
-        mut data_source: Box<dyn DeferredDataSource>,
-        extra_source: Option<Box<dyn DeferredDataSource>>,
+        mut data_sources: Vec<Box<dyn DeferredDataSource>>,
     ) -> Self {
         // This is also where you can customized the look at feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
@@ -924,15 +923,11 @@ impl ProfApp {
             Default::default()
         };
 
-        result.pending_data_sources.clear();
-
-        data_source.fetch_info();
-        result.pending_data_sources.push_back(data_source);
-
-        if let Some(mut extra_source) = extra_source {
-            extra_source.fetch_info();
-            result.pending_data_sources.push_back(extra_source);
+        for data_source in &mut data_sources {
+            data_source.fetch_info();
         }
+        result.pending_data_sources.clear();
+        result.pending_data_sources.extend(data_sources);
 
         result.windows.clear();
 
@@ -1424,10 +1419,7 @@ impl UiExtra for egui::Ui {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn start(
-    data_source: Box<dyn DeferredDataSource>,
-    extra_source: Option<Box<dyn DeferredDataSource>>,
-) {
+pub fn start(data_sources: Vec<Box<dyn DeferredDataSource>>) {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     tracing_subscriber::fmt::init();
 
@@ -1435,16 +1427,13 @@ pub fn start(
     eframe::run_native(
         "Legion Prof",
         native_options,
-        Box::new(|cc| Box::new(ProfApp::new(cc, data_source, extra_source))),
+        Box::new(|cc| Box::new(ProfApp::new(cc, data_sources))),
     )
     .expect("failed to start eframe");
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn start(
-    data_source: Box<dyn DeferredDataSource>,
-    extra_source: Option<Box<dyn DeferredDataSource>>,
-) {
+pub fn start(data_sources: Vec<Box<dyn DeferredDataSource>>) {
     // Make sure panics are logged using `console.error`.
     console_error_panic_hook::set_once();
 
@@ -1457,7 +1446,7 @@ pub fn start(
         eframe::start_web(
             "the_canvas_id", // hardcode it
             web_options,
-            Box::new(|cc| Box::new(ProfApp::new(cc, data_source, extra_source))),
+            Box::new(|cc| Box::new(ProfApp::new(cc, data_sources))),
         )
         .await
         .expect("failed to start eframe");

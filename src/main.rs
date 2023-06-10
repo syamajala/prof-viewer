@@ -27,12 +27,9 @@ const DEFAULT_URL: &str = "http://127.0.0.1:8080";
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    legion_prof_viewer::app::start(
-        Box::new(DeferredDataSourceWrapper::new(RandomDataSource::default())),
-        Some(Box::new(DeferredDataSourceWrapper::new(
-            RandomDataSource::default(),
-        ))),
-    );
+    legion_prof_viewer::app::start(vec![Box::new(DeferredDataSourceWrapper::new(
+        RandomDataSource::default(),
+    ))]);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -52,7 +49,7 @@ fn main() {
     .expect("Unable to parse query URL");
 
     console_log!("Initializing Legion Profiler Viewer");
-    legion_prof_viewer::app::start(Box::new(HTTPClientDataSource::new(url)), None);
+    legion_prof_viewer::app::start(vec![Box::new(HTTPClientDataSource::new(url))]);
 }
 
 type SlotCacheTile = (Vec<Vec<Item>>, Vec<Vec<ItemMeta>>);
