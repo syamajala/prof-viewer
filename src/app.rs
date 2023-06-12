@@ -1335,9 +1335,10 @@ impl eframe::App for ProfApp {
         Self::keyboard(ctx, cx);
 
         // Keep repainting as long as we have outstanding requests.
-        if windows
-            .iter()
-            .any(|w| w.config.data_source.outstanding_requests() > 0)
+        if !pending_data_sources.is_empty()
+            || windows
+                .iter()
+                .any(|w| w.config.data_source.outstanding_requests() > 0)
         {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
