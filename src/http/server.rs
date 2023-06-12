@@ -76,8 +76,9 @@ impl DataSourceHTTPServer {
     #[actix_web::main]
     pub async fn create_server(self) -> std::io::Result<()> {
         let state = Data::from(Arc::new(self.state));
-        // FIXME (Elliott): pick a different default logging level?
-        std::env::set_var("RUST_LOG", "debug");
+        if std::env::var_os("RUST_LOG").is_none() {
+            std::env::set_var("RUST_LOG", "info");
+        }
         env_logger::init();
         HttpServer::new(move || {
             let cors = Cors::default()
