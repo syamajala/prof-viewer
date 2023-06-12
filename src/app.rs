@@ -1340,7 +1340,7 @@ impl eframe::App for ProfApp {
                 .iter()
                 .any(|w| w.config.data_source.outstanding_requests() > 0)
         {
-            ctx.request_repaint_after(Duration::from_millis(100));
+            ctx.request_repaint_after(Duration::from_millis(50));
         }
     }
 }
