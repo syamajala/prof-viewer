@@ -8,16 +8,17 @@ rust-version = "1.67"
 [features]
 default = []
 client = ["dep:serde_json", "dep:reqwest", "dep:url"]
-server = ["dep:actix-cors", "dep:actix-web", "dep:env_logger", "dep:serde_json"]
+server = ["dep:actix-cors", "dep:actix-web", "dep:serde_json"]
 
 [dependencies]
-egui = "0.21.0"
-eframe = { version = "0.21.0", default-features = false, features = [
+egui = "0.22.0"
+eframe = { version = "0.22.0", default-features = false, features = [
     "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
+log = "0.4"
 
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", optional = true }
@@ -34,20 +35,17 @@ url = { version = "2", optional = true }
 # server:
 actix-web = { version = "4", optional = true }
 actix-cors = { version = "0.6", optional = true }
-env_logger = { version = "0.10", optional = true }
 
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = "0.10"
 rayon = "1.7"
 reqwest = { version = "0.11", features = ["json", "blocking"], optional = true }
-tracing-subscriber = "0.3"
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1.6"
 reqwest = { version = "0.11", features = ["json"], optional = true }
-tracing-wasm = "0.2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "Location"] }

@@ -286,7 +286,7 @@ impl Entry for Summary {
         // Conversions to and from screen space coordinates
         let util_to_screen = |util: &UtilPoint| {
             let time = cx.view_interval.unlerp(util.time);
-            rect.lerp(Vec2::new(time, 1.0 - util.util))
+            rect.lerp_inside(Vec2::new(time, 1.0 - util.util))
         };
         let screen_to_util = |screen: Pos2| UtilPoint {
             time: cx
@@ -298,7 +298,7 @@ impl Entry for Summary {
         // Linear interpolation along the line from p1 to p2
         let interpolate = |p1: Pos2, p2: Pos2, x: f32| {
             let ratio = (x - p1.x) / (p2.x - p1.x);
-            Rect::from_min_max(p1, p2).lerp(Vec2::new(ratio, ratio))
+            Rect::from_min_max(p1, p2).lerp_inside(Vec2::new(ratio, ratio))
         };
 
         let mut last_util: Option<&UtilPoint> = None;
@@ -345,8 +345,8 @@ impl Entry for Summary {
         if let Some(util) = hover_util {
             let time = cx.view_interval.unlerp(util.time);
             let util_rect = Rect::from_min_max(
-                rect.lerp(Vec2::new(time - 0.05, 0.0)),
-                rect.lerp(Vec2::new(time + 0.05, 1.0)),
+                rect.lerp_inside(Vec2::new(time - 0.05, 0.0)),
+                rect.lerp_inside(Vec2::new(time + 0.05, 1.0)),
             );
             ui.show_tooltip(
                 "utilization_tooltip",
@@ -447,8 +447,8 @@ impl Slot {
             // entire row if we don't need it
 
             // Compute bounds for the whole row
-            let row_min = rect.lerp(Vec2::new(0.0, (irow as f32 + 0.05) / rows as f32));
-            let row_max = rect.lerp(Vec2::new(1.0, (irow as f32 + 0.95) / rows as f32));
+            let row_min = rect.lerp_inside(Vec2::new(0.0, (irow as f32 + 0.05) / rows as f32));
+            let row_max = rect.lerp_inside(Vec2::new(1.0, (irow as f32 + 0.95) / rows as f32));
 
             // Cull if out of bounds
             // Note: need to shift by rect.min to get to viewport space
@@ -473,8 +473,8 @@ impl Slot {
                 // is the BEGINNING of the interval.stop nanosecond.
                 let start = cx.view_interval.unlerp(item.interval.start).at_least(0.0);
                 let stop = cx.view_interval.unlerp(item.interval.stop).at_most(1.0);
-                let min = rect.lerp(Vec2::new(start, (irow as f32 + 0.05) / rows as f32));
-                let max = rect.lerp(Vec2::new(stop, (irow as f32 + 0.95) / rows as f32));
+                let min = rect.lerp_inside(Vec2::new(start, (irow as f32 + 0.05) / rows as f32));
+                let max = rect.lerp_inside(Vec2::new(stop, (irow as f32 + 0.95) / rows as f32));
 
                 let item_rect = Rect::from_min_max(min, max);
                 if row_hover && hover_pos.map_or(false, |h| item_rect.contains(h)) {
@@ -1421,8 +1421,7 @@ impl UiExtra for egui::Ui {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn start(data_sources: Vec<Box<dyn DeferredDataSource>>) {
-    // Log to stdout (if you run with `RUST_LOG=debug`).
-    tracing_subscriber::fmt::init();
+    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
@@ -1435,21 +1434,19 @@ pub fn start(data_sources: Vec<Box<dyn DeferredDataSource>>) {
 
 #[cfg(target_arch = "wasm32")]
 pub fn start(data_sources: Vec<Box<dyn DeferredDataSource>>) {
-    // Make sure panics are logged using `console.error`.
-    console_error_panic_hook::set_once();
-
-    // Redirect tracing to console.log and friends:
-    tracing_wasm::set_as_global_default();
+    // Redirect `log` message to `console.log` and friends:
+    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
     let web_options = eframe::WebOptions::default();
 
     wasm_bindgen_futures::spawn_local(async {
-        eframe::start_web(
-            "the_canvas_id", // hardcode it
-            web_options,
-            Box::new(|cc| Box::new(ProfApp::new(cc, data_sources))),
-        )
-        .await
-        .expect("failed to start eframe");
+        eframe::WebRunner::new()
+            .start(
+                "the_canvas_id", // hardcode it
+                web_options,
+                Box::new(|cc| Box::new(ProfApp::new(cc, data_sources))),
+            )
+            .await
+            .expect("failed to start eframe");
     });
 }
