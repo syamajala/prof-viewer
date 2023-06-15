@@ -1,9 +1,12 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::fmt;
 use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
-use egui::{Align2, Color32, NumExt, Pos2, Rect, ScrollArea, Slider, Stroke, TextStyle, Vec2};
+use egui::{
+    Align2, Color32, NumExt, Pos2, Rect, RichText, ScrollArea, Slider, Stroke, TextStyle, Vec2,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
@@ -11,7 +14,7 @@ use crate::data::{
     SummaryTileData, TileID, UtilPoint,
 };
 use crate::deferred_data::{CountingDeferredDataSource, DeferredDataSource};
-use crate::timestamp::Interval;
+use crate::timestamp::{Interval, Timestamp, TimestampParseError};
 
 /// Overview:
 ///   ProfApp -> Context, Window *
@@ -97,6 +100,50 @@ struct ZoomState {
     zoom_count: u32, // factor out
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+enum IntervalSelectError {
+    InvalidValue,
+    NoUnit,
+    InvalidUnit,
+    StartAfterStop,
+    StartAfterEnd,
+    StopBeforeStart,
+}
+
+impl From<TimestampParseError> for IntervalSelectError {
+    fn from(val: TimestampParseError) -> Self {
+        match val {
+            TimestampParseError::InvalidValue => IntervalSelectError::InvalidValue,
+            TimestampParseError::NoUnit => IntervalSelectError::NoUnit,
+            TimestampParseError::InvalidUnit => IntervalSelectError::InvalidUnit,
+        }
+    }
+}
+
+impl fmt::Display for IntervalSelectError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IntervalSelectError::InvalidValue => write!(f, "invalid value"),
+            IntervalSelectError::NoUnit => write!(f, "no unit"),
+            IntervalSelectError::InvalidUnit => write!(f, "invalid unit"),
+            IntervalSelectError::StartAfterStop => write!(f, "start after stop"),
+            IntervalSelectError::StartAfterEnd => write!(f, "start after end"),
+            IntervalSelectError::StopBeforeStart => write!(f, "stop before start"),
+        }
+    }
+}
+
+#[derive(Default)]
+struct IntervalSelectState {
+    // User-entered strings for the interval start/stop.
+    start_buffer: String,
+    stop_buffer: String,
+
+    // Parse errors for the respective strings (if any).
+    start_error: Option<IntervalSelectError>,
+    stop_error: Option<IntervalSelectError>,
+}
+
 #[derive(Default, Deserialize, Serialize)]
 struct Context {
     row_height: f32,
@@ -121,6 +168,8 @@ struct Context {
     debug: bool,
 
     zoom_state: ZoomState,
+    #[serde(skip)]
+    interval_state: IntervalSelectState,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -835,7 +884,10 @@ impl Window {
     }
 
     fn content(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
-        ui.heading(format!("Profile {}", self.index));
+        ui.horizontal(|ui| {
+            ui.heading(format!("Profile {}", self.index));
+            ui.label(cx.view_interval.to_string())
+        });
 
         ScrollArea::vertical()
             .auto_shrink([false; 2])
@@ -896,13 +948,88 @@ impl Window {
         });
     }
 
-    fn controls(&mut self, ui: &mut egui::Ui, cx: &Context) {
+    fn select_interval(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
+        ui.subheading("Interval", cx);
+        let start_res = ui
+            .horizontal(|ui| {
+                ui.label("Start:");
+                ui.text_edit_singleline(&mut cx.interval_state.start_buffer)
+            })
+            .inner;
+
+        if let Some(error) = cx.interval_state.start_error {
+            ui.label(RichText::new(error.to_string()).color(Color32::RED));
+        }
+
+        let stop_res = ui
+            .horizontal(|ui| {
+                ui.label("Stop:");
+                ui.text_edit_singleline(&mut cx.interval_state.stop_buffer)
+            })
+            .inner;
+
+        if let Some(error) = cx.interval_state.stop_error {
+            ui.label(RichText::new(error.to_string()).color(Color32::RED));
+        }
+
+        if start_res.lost_focus()
+            && cx.interval_state.start_buffer != cx.view_interval.start.to_string()
+        {
+            match Timestamp::parse(&cx.interval_state.start_buffer) {
+                Ok(start) => {
+                    // validate timestamp
+                    if start > cx.view_interval.stop {
+                        cx.interval_state.start_error = Some(IntervalSelectError::StartAfterStop);
+                        return;
+                    }
+                    if start > cx.total_interval.stop {
+                        cx.interval_state.start_error = Some(IntervalSelectError::StartAfterEnd);
+                        return;
+                    }
+                    cx.view_interval.start = start;
+                    ProfApp::zoom(cx, cx.view_interval);
+                    cx.interval_state.start_error = None;
+                    cx.interval_state.stop_error = None;
+                }
+                Err(e) => {
+                    cx.interval_state.start_error = Some(e.into());
+                }
+            }
+        }
+        if stop_res.lost_focus()
+            && cx.interval_state.stop_buffer != cx.view_interval.stop.to_string()
+        {
+            match Timestamp::parse(&cx.interval_state.stop_buffer) {
+                Ok(stop) => {
+                    // validate timestamp
+                    if stop < cx.view_interval.start {
+                        cx.interval_state.stop_error = Some(IntervalSelectError::StopBeforeStart);
+                        return;
+                    }
+                    cx.view_interval.stop = stop;
+                    ProfApp::zoom(cx, cx.view_interval);
+                    cx.interval_state.start_error = None;
+                    cx.interval_state.stop_error = None;
+                }
+                Err(e) => {
+                    cx.interval_state.stop_error = Some(e.into());
+                }
+            }
+        }
+    }
+
+    fn controls(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
         const WIDGET_PADDING: f32 = 8.0;
         ui.heading(format!("Profile {}: Controls", self.index));
         ui.add_space(WIDGET_PADDING);
         self.node_selection(ui, cx);
         ui.add_space(WIDGET_PADDING);
         self.expand_collapse(ui, cx);
+        ui.add_space(WIDGET_PADDING);
+        self.select_interval(ui, cx);
+        if ui.button("Reset Zoom Level").clicked() {
+            ProfApp::zoom(cx, cx.total_interval);
+        }
     }
 }
 
@@ -956,6 +1083,8 @@ impl ProfApp {
         cx.zoom_state.levels.push(cx.view_interval);
         cx.zoom_state.index = cx.zoom_state.levels.len() - 1;
         cx.zoom_state.zoom_count = 0;
+        cx.interval_state.start_buffer = cx.view_interval.start.to_string();
+        cx.interval_state.stop_buffer = cx.view_interval.stop.to_string();
     }
 
     fn undo_zoom(cx: &mut Context) {
@@ -965,6 +1094,8 @@ impl ProfApp {
         cx.zoom_state.index -= 1;
         cx.view_interval = cx.zoom_state.levels[cx.zoom_state.index];
         cx.zoom_state.zoom_count = 0;
+        cx.interval_state.start_buffer = cx.view_interval.start.to_string();
+        cx.interval_state.stop_buffer = cx.view_interval.stop.to_string();
     }
 
     fn redo_zoom(cx: &mut Context) {
@@ -974,6 +1105,8 @@ impl ProfApp {
         cx.zoom_state.index += 1;
         cx.view_interval = cx.zoom_state.levels[cx.zoom_state.index];
         cx.zoom_state.zoom_count = 0;
+        cx.interval_state.start_buffer = cx.view_interval.start.to_string();
+        cx.interval_state.stop_buffer = cx.view_interval.stop.to_string();
     }
 
     fn keyboard(ctx: &egui::Context, cx: &mut Context) {
@@ -1232,10 +1365,6 @@ impl eframe::App for ProfApp {
                     ui.set_width(ui.available_width());
                     window.controls(ui, cx);
                 });
-            }
-
-            if ui.button("Reset Zoom Level").clicked() {
-                ProfApp::zoom(cx, cx.total_interval);
             }
 
             egui::Frame::group(ui.style()).show(ui, |ui| {
