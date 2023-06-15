@@ -1,34 +1,38 @@
 # Legion Prof Viewer
 
-Legion Prof frontend.
+This repository contains the Legion Prof frontend in Rust. The frontend here is
+intended to be used with Legion Prof and is not (typically) used
+standalone. Most users want the integrated version (i.e., that can parse Legion
+Prof logs and generate a visualization). To use the integrated version of
+Legion Prof, clone the [Legion
+repository](https://github.com/StanfordLegion/legion) and run:
 
-### TODO
+```
+git clone https://github.com/StanfordLegion/legion.git
+cargo install --path legion/tools/legion_prof_rs
+```
 
-- [x] Check nested viewport culling
-- [x] Slot items by row
-- [x] Row check for hover/click
-- [x] Better explanatory text
-- [x] Utilization plots
-- [x] Vertical cursor
-- [x] Node selection
-- [x] Expand all of a kind (cpu/gpu/etc)Rects on 1-row proc show up at top
-- [x] Stop hardcoding kinds
-- [x] Multiple profiles
-- [x] There is a bug when you move the cursor near the right edge of the screen, the scroll bar gets pushed away
-- [x] Timestamps on the vertical cursor
-- [x] Horizontal zoom
-- [x] Fetch from data source
-- [x] Bug in single-row slots not rendered at bottom
-- [x] Render data in tiles
-- [x] Long-running tasks that cross tile boundary
-- [ ] Asynchronous data fetch
-- [ ] Horizontal pan (including drag, keyboard, horizontal scroll wheel)
-- [ ] Vertical zoom
-- [ ] Search (with load all data option to get better search results)
-- [ ] Task detail view
-- [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse)
+To start a native viewer right away, run:
+
+```
+legion_prof --view prof_*.gz
+```
+
+To start a server (and attach a viewer to it), run:
+
+```
+legion_prof --serve prof_*.gz
+legion_prof --attach http://127.0.0.1:8080/
+```
+
+If you really want to run the frontend by itself, continue to the instructions
+below.
+
+## Quickstart
 
 ### Native
+
+Run:
 
 ```
 cargo run --release
@@ -48,24 +52,38 @@ dnf install clang clang-devel clang-tools-extra speech-dispatcher-devel libxkbco
 
 ### Web Locally
 
-You can compile your app to [WASM](https://en.wikipedia.org/wiki/WebAssembly) and publish it as a web page.
+Install dependencies:
 
-We use [Trunk](https://trunkrs.dev/) to build for web target.
-1. Install Trunk with `cargo install --locked trunk`.
-2. Run `trunk serve` to build and serve on `http://127.0.0.1:8080`. Trunk will rebuild automatically if you edit the project.
-3. Open `http://127.0.0.1:8080/index.html#dev` in a browser. See the warning below.
+```
+cargo install --locked trunk
+```
 
-> `assets/sw.js` script will try to cache our app, and loads the cached version when it cannot connect to server allowing your app to work offline (like PWA).
-> appending `#dev` to `index.html` will skip this caching, allowing us to load the latest builds during development.
+Then run:
+
+```
+trunk serve
+```
+
+Go to <http://127.0.0.1:8080/#dev> in your browser. (The `#dev` skips
+client-side caching, so that you don't need to clear your browser cache as you
+develop the app.)
 
 ### Web Deploy
 
-1. Just run `trunk build --release`.
-2. It will generate a `dist` directory as a "static html" website
-3. Upload the `dist` directory to any of the numerous free hosting websites including [GitHub Pages](https://docs.github.com/en/free-pro-team@latest/github/working-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
-4. we already provide a workflow that auto-deploys our app to GitHub pages if you enable it.
-> To enable Github Pages, you need to go to Repository -> Settings -> Pages -> Source -> set to `gh-pages` branch and `/` (root).
->
-> If `gh-pages` is not available in `Source`, just create and push a branch called `gh-pages` and it should be available.
+Install `trunk` as above. Then run:
 
-You can test the template app at <https://elliottslaughter.github.io/test-egui>.
+```
+trunk build --release
+```
+
+This will generate a static site under `dist` that you can upload. Note that
+`trunk` by default assumes the site will live in the root of the domain (e.g.,
+`https://example.com/`). If that is not true, add `--public-url ...` to the
+`trunk` command where `...` is the path the build is hosted under (e.g.,
+`https://example.com/.../`).
+
+### Web Auto-Deploy
+
+This repository is configured via GitHub Actions to deploy automatically on
+each push to the `master` branch. You can test it at
+<https://legion.stanford.edu/prof-viewer/>.

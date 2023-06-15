@@ -1,0 +1,25 @@
+# TODO
+
+- [x] Check nested viewport culling
+- [x] Slot items by row
+- [x] Row check for hover/click
+- [x] Better explanatory text
+- [x] Utilization plots
+- [x] Vertical cursor
+- [x] Node selection
+- [x] Expand all of a kind (cpu/gpu/etc)Rects on 1-row proc show up at top
+- [x] Stop hardcoding kinds
+- [x] Multiple profiles
+- [x] There is a bug when you move the cursor near the right edge of the screen, the scroll bar gets pushed away
+- [x] Timestamps on the vertical cursor
+- [x] Horizontal zoom
+- [x] Fetch from data source
+- [x] Bug in single-row slots not rendered at bottom
+- [x] Render data in tiles
+- [x] Long-running tasks that cross tile boundary
+- [x] Asynchronous data fetch
+- [ ] Horizontal pan (including drag, keyboard, horizontal scroll wheel)
+- [ ] Vertical zoom
+- [ ] Search (with load all data option to get better search results)
+- [ ] Task detail view
+- [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse)
