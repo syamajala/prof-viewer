@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
@@ -10,8 +10,8 @@ use egui::{
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
-    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, SlotMetaTileData, SlotTileData,
-    SummaryTileData, TileID, UtilPoint,
+    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, ItemMeta, ItemUID, SlotMetaTileData,
+    SlotTileData, SummaryTileData, TileID, UtilPoint,
 };
 use crate::deferred_data::{CountingDeferredDataSource, DeferredDataSource};
 use crate::timestamp::{Interval, Timestamp, TimestampParseError};
@@ -75,6 +75,35 @@ struct Panel<S: Entry> {
     slots: Vec<S>,
 }
 
+#[derive(Debug)]
+struct SearchCacheItem {
+    // For vertical scroll, we need the item's row index (note: reversed,
+    // because we're in screen space)
+    irow: usize,
+
+    // For horizontal scroll, we need the item's interval
+    interval: Interval,
+
+    // Cache fields for display
+    title: String,
+}
+
+#[derive(Default)]
+struct SearchState {
+    // Search parameters
+    query: String,
+    last_query: String,
+    include_collapsed_entries: bool,
+    last_include_collapsed_entries: bool,
+    last_view_interval: Option<Interval>,
+
+    // Cache of matching items
+    result_set: BTreeSet<ItemUID>,
+    result_cache: BTreeMap<EntryID, BTreeMap<TileID, BTreeMap<ItemUID, SearchCacheItem>>>,
+    entry_tree: BTreeMap<u64, BTreeMap<u64, BTreeSet<u64>>>,
+    item_select: Option<(EntryID, usize)>,
+}
+
 struct Config {
     // Node selection controls
     min_node: u64,
@@ -84,6 +113,8 @@ struct Config {
     interval: Interval,
 
     data_source: CountingDeferredDataSource<Box<dyn DeferredDataSource>>,
+
+    search_state: SearchState,
 }
 
 struct Window {
@@ -166,6 +197,7 @@ struct Context {
 
     debug: bool,
 
+    #[serde(skip)]
     zoom_state: ZoomState,
     #[serde(skip)]
     interval_state: IntervalSelectState,
@@ -197,6 +229,10 @@ trait Entry {
 
     fn find_slot(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot>;
     fn find_summary(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary>;
+
+    fn inflate_meta(&mut self, config: &mut Config, cx: &mut Context);
+
+    fn search(&mut self, config: &mut Config);
 
     fn label(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let response = ui.allocate_rect(
@@ -243,7 +279,7 @@ trait Entry {
         cx: &mut Context,
     );
 
-    fn height(&self, config: &Config, cx: &Context) -> f32;
+    fn height(&self, prefix: Option<&EntryID>, config: &Config, cx: &Context) -> f32;
 
     fn is_expandable(&self) -> bool;
 
@@ -297,6 +333,14 @@ impl Entry for Summary {
         assert_eq!(entry_id.level(), level);
         assert_eq!(entry_id.index(level - 1)?, EntryIndex::Summary);
         Some(self)
+    }
+
+    fn inflate_meta(&mut self, _config: &mut Config, _cx: &mut Context) {
+        unreachable!()
+    }
+
+    fn search(&mut self, _config: &mut Config) {
+        unreachable!()
     }
 
     fn content(
@@ -404,7 +448,8 @@ impl Entry for Summary {
         }
     }
 
-    fn height(&self, _config: &Config, cx: &Context) -> f32 {
+    fn height(&self, prefix: Option<&EntryID>, _config: &Config, cx: &Context) -> f32 {
+        assert!(prefix.is_none());
         const ROWS: u64 = 4;
         ROWS as f32 * cx.row_height
     }
@@ -529,7 +574,17 @@ impl Slot {
                     hover_pos = None;
                     interact_item = Some((row, item_idx, item_rect, tile_id));
                 }
-                ui.painter().rect(item_rect, 0.0, item.color, Stroke::NONE);
+
+                let mut color = item.color;
+                if !config.search_state.query.is_empty() {
+                    if config.search_state.result_set.contains(&item.item_uid) {
+                        color = Color32::RED;
+                    } else {
+                        color = color.gamma_multiply(0.2);
+                    }
+                }
+
+                ui.painter().rect(item_rect, 0.0, color, Stroke::NONE);
             }
         }
 
@@ -612,6 +667,36 @@ impl Entry for Slot {
         unreachable!()
     }
 
+    fn inflate_meta(&mut self, config: &mut Config, cx: &mut Context) {
+        for tile_id in config.request_tiles(cx.view_interval) {
+            self.fetch_meta_tile(tile_id, config);
+        }
+    }
+
+    fn search(&mut self, config: &mut Config) {
+        if !config.search_state.start_entry(self) {
+            return;
+        }
+
+        for (tile_id, tile) in &self.tile_metas {
+            if let Some(tile) = tile {
+                if !config.search_state.start_tile(self, *tile_id) {
+                    continue;
+                }
+
+                for (row, row_items) in tile.items.iter().enumerate() {
+                    for item in row_items {
+                        if config.search_state.is_match(item) {
+                            // Reverse rows because we're in screen space
+                            let irow = tile.items.len() - row - 1;
+                            config.search_state.insert(self, *tile_id, irow, item);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn content(
         &mut self,
         ui: &mut egui::Ui,
@@ -650,7 +735,7 @@ impl Entry for Slot {
         }
     }
 
-    fn height(&self, _config: &Config, cx: &Context) -> f32 {
+    fn height(&self, _prefix: Option<&EntryID>, _config: &Config, cx: &Context) -> f32 {
         self.rows() as f32 * cx.row_height
     }
 
@@ -680,7 +765,7 @@ impl<S: Entry> Panel<S> {
         // Compute the size of this slot
         // This is in screen (i.e., rect) space
         let min_y = *y;
-        let max_y = min_y + slot.height(config, cx);
+        let max_y = min_y + slot.height(None, config, cx);
         *y = max_y + ROW_PADDING;
 
         // Cull if out of bounds
@@ -777,6 +862,34 @@ impl<S: Entry> Entry for Panel<S> {
         }
     }
 
+    fn inflate_meta(&mut self, config: &mut Config, cx: &mut Context) {
+        let force = config.search_state.include_collapsed_entries;
+        if self.expanded || force {
+            for slot in &mut self.slots {
+                // Apply visibility settings
+                if !force && !Self::is_slot_visible(slot.entry_id(), config) {
+                    continue;
+                }
+
+                slot.inflate_meta(config, cx);
+            }
+        }
+    }
+
+    fn search(&mut self, config: &mut Config) {
+        let force = config.search_state.include_collapsed_entries;
+        if self.expanded || force {
+            for slot in &mut self.slots {
+                // Apply visibility settings
+                if !force && !Self::is_slot_visible(slot.entry_id(), config) {
+                    continue;
+                }
+
+                slot.search(config);
+            }
+        }
+    }
+
     fn content(
         &mut self,
         ui: &mut egui::Ui,
@@ -804,14 +917,14 @@ impl<S: Entry> Entry for Panel<S> {
         }
     }
 
-    fn height(&self, config: &Config, cx: &Context) -> f32 {
+    fn height(&self, prefix: Option<&EntryID>, config: &Config, cx: &Context) -> f32 {
         const UNEXPANDED_ROWS: u64 = 2;
         const ROW_PADDING: f32 = 4.0;
 
         let mut total = 0.0;
         let mut rows: i64 = 0;
         if let Some(summary) = &self.summary {
-            total += summary.height(config, cx);
+            total += summary.height(None, config, cx);
             rows += 1;
         } else if !self.expanded {
             // Need some minimum space if this panel has no summary and is collapsed
@@ -821,12 +934,27 @@ impl<S: Entry> Entry for Panel<S> {
 
         if self.expanded {
             for slot in &self.slots {
+                if let Some(prefix) = prefix {
+                    // If this is our entry, stop
+                    if slot.entry_id() == prefix {
+                        break;
+                    }
+                }
+
                 // Apply visibility settings
                 if !Self::is_slot_visible(slot.entry_id(), config) {
                     continue;
                 }
 
-                total += slot.height(config, cx);
+                total += slot.height(prefix, config, cx);
+
+                if let Some(prefix) = prefix {
+                    // If we're a prefix of the entry, recurse and then stop
+                    if prefix.has_prefix(slot.entry_id()) {
+                        break;
+                    }
+                }
+
                 rows += 1;
             }
         }
@@ -845,6 +973,127 @@ impl<S: Entry> Entry for Panel<S> {
     }
 }
 
+impl SearchState {
+    fn clear(&mut self) {
+        self.result_set.clear();
+        self.result_cache.clear();
+        self.entry_tree.clear();
+    }
+
+    fn ensure_valid_cache(&mut self, cx: &Context) {
+        let mut invalidate = false;
+
+        // Invalidate when the search query changes.
+        if self.query != self.last_query {
+            invalidate = true;
+            self.last_query = self.query.clone();
+        }
+
+        // Invalidate when EXCLUDING collapsed entries. (I.e., because the
+        // searched set shrinks. Growing is ok because search is monotonic.)
+        if self.include_collapsed_entries != self.last_include_collapsed_entries
+            && !self.include_collapsed_entries
+        {
+            invalidate = true;
+            self.last_include_collapsed_entries = self.include_collapsed_entries;
+        }
+
+        // Invalidate when the view interval changes.
+        if self.last_view_interval != Some(cx.view_interval) {
+            invalidate = true;
+            self.last_view_interval = Some(cx.view_interval);
+        }
+
+        if invalidate {
+            self.clear();
+        }
+    }
+
+    fn is_match(&self, item: &ItemMeta) -> bool {
+        item.title.contains(&self.query)
+    }
+
+    const MAX_SEARCH_RESULTS: usize = 100_000;
+
+    fn start_entry<E: Entry>(&mut self, entry: &E) -> bool {
+        // Early exit if we found enough items.
+        if self.result_set.len() >= Self::MAX_SEARCH_RESULTS {
+            return false;
+        }
+
+        // Double lookup is better than cloning unconditionally.
+        if !self.result_cache.contains_key(entry.entry_id()) {
+            self.result_cache
+                .entry(entry.entry_id().clone())
+                .or_insert_with(BTreeMap::new);
+        }
+
+        // Always recurse into tiles, because results can be fetched
+        // asynchronously.
+        true
+    }
+
+    fn start_tile<E: Entry>(&mut self, entry: &E, tile_id: TileID) -> bool {
+        // Early exit if we found enough items.
+        if self.result_set.len() >= Self::MAX_SEARCH_RESULTS {
+            return false;
+        }
+
+        let mut result = true;
+        // Always called second, so we know the entry exists.
+        let cache = self.result_cache.get_mut(entry.entry_id()).unwrap();
+        cache
+            .entry(tile_id)
+            .and_modify(|_| {
+                result = false;
+            })
+            .or_insert_with(BTreeMap::new);
+        result
+    }
+
+    fn insert<E: Entry>(&mut self, entry: &E, tile_id: TileID, irow: usize, item: &ItemMeta) {
+        if self.result_set.len() >= Self::MAX_SEARCH_RESULTS {
+            return;
+        }
+
+        // We want each item to appear once, so check the result set first
+        // before inserting.
+        if self.result_set.insert(item.item_uid) {
+            let cache = self.result_cache.get_mut(entry.entry_id()).unwrap();
+            let cache = cache.get_mut(&tile_id).unwrap();
+            cache
+                .entry(item.item_uid)
+                .or_insert_with(|| SearchCacheItem {
+                    irow,
+                    interval: item.original_interval,
+                    title: item.title.clone(),
+                });
+        }
+    }
+
+    fn build_entry_tree(&mut self) {
+        for (entry_id, cache) in &self.result_cache {
+            let cache_size: u64 = cache.values().map(|x| x.len() as u64).sum();
+            if cache_size == 0 {
+                continue;
+            }
+
+            let level0_index = entry_id.slot_index(0).unwrap();
+            let level1_index = entry_id.slot_index(1).unwrap();
+            let level2_index = entry_id.slot_index(2).unwrap();
+
+            let level0_subtree = self
+                .entry_tree
+                .entry(level0_index)
+                .or_insert_with(BTreeMap::new);
+            let level1_subtree = level0_subtree
+                .entry(level1_index)
+                .or_insert_with(BTreeSet::new);
+            level1_subtree.insert(level2_index);
+        }
+    }
+}
+
 impl Config {
     fn new(data_source: Box<dyn DeferredDataSource>, info: &DataSourceInfo) -> Self {
         let max_node = info.entry_info.nodes();
@@ -855,6 +1104,7 @@ impl Config {
             max_node,
             interval,
             data_source: CountingDeferredDataSource::new(data_source),
+            search_state: SearchState::default(),
         }
     }
 
@@ -891,11 +1141,20 @@ impl Window {
         ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show_viewport(ui, |ui, viewport| {
-                let height = self.panel.height(&self.config, cx);
+                let height = self.panel.height(None, &self.config, cx);
                 ui.set_height(height);
                 ui.set_width(ui.available_width());
 
                 let rect = Rect::from_min_size(ui.min_rect().min, viewport.size());
+
+                if let Some((ref entry_id, irow)) = self.config.search_state.item_select {
+                    let prefix_height = self.panel.height(Some(entry_id), &self.config, cx);
+                    let mut item_rect =
+                        rect.translate(Vec2::new(0.0, prefix_height + irow as f32 * cx.row_height));
+                    item_rect.set_height(cx.row_height);
+                    ui.scroll_to_rect(item_rect, Some(egui::Align::Center));
+                    self.config.search_state.item_select = None;
+                }
 
                 // Root panel has no label
                 self.panel.content(ui, rect, viewport, &mut self.config, cx);
@@ -987,8 +1246,6 @@ impl Window {
                     }
                     cx.view_interval.start = start;
                     ProfApp::zoom(cx, cx.view_interval);
-                    cx.interval_state.start_error = None;
-                    cx.interval_state.stop_error = None;
                 }
                 Err(e) => {
                     cx.interval_state.start_error = Some(e.into());
@@ -1007,8 +1264,6 @@ impl Window {
                     }
                     cx.view_interval.stop = stop;
                     ProfApp::zoom(cx, cx.view_interval);
-                    cx.interval_state.start_error = None;
-                    cx.interval_state.stop_error = None;
                 }
                 Err(e) => {
                     cx.interval_state.stop_error = Some(e.into());
@@ -1029,6 +1284,134 @@ impl Window {
         if ui.button("Reset Zoom Level").clicked() {
             ProfApp::zoom(cx, cx.total_interval);
         }
+    }
+
+    fn search(&mut self, cx: &mut Context) {
+        // Invalidate cache if the search query changed.
+        self.config.search_state.ensure_valid_cache(cx);
+
+        // If search query empty, skip search. (Note: do this after
+        // invalidating cache, otherwise we get leftover search results when
+        // clearing the query.)
+        if self.config.search_state.query.is_empty() {
+            return;
+        }
+
+        // Expand meta tiles. (Including collapsed entries, if requested).
+        self.panel.inflate_meta(&mut self.config, cx);
+
+        // Search whatever data we have. Results are cached by entry/tile.
+        self.panel.search(&mut self.config);
+
+        // Cache is now full and we can highlight/render the entries.
+    }
+
+    fn search_box(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
+        ui.horizontal(|ui| {
+            // Hack: need to estimate the button width or else the text box
+            // overflows. Refer to the source for egui::widgets::Button::ui
+            // for calculations.
+            let button_label = "✖";
+            let button_padding = ui.spacing().button_padding;
+            let available_width = ui.available_width() - 2.0 * button_padding.x;
+            let button_text: egui::WidgetText = "✖".into();
+            let button_text =
+                button_text.into_galley(ui, None, available_width, egui::TextStyle::Button);
+            let button_size = button_text.size() + 2.0 * button_padding;
+
+            let query_size = ui.available_size().x - button_size.x - ui.spacing().item_spacing.x;
+            egui::TextEdit::singleline(&mut self.config.search_state.query)
+                .desired_width(query_size)
+                .show(ui);
+            if ui.button(button_label).clicked() {
+                self.config.search_state.query.clear();
+            }
+        });
+        ui.checkbox(
+            &mut self.config.search_state.include_collapsed_entries,
+            "Include collapsed processors",
+        );
+        self.search(cx);
+    }
+
+    fn search_results(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
+        if self.config.search_state.query.is_empty() {
+            ui.label("Enter a search to see results displayed here.");
+            return;
+        }
+
+        if self.config.search_state.result_set.is_empty() {
+            ui.label("No results found. Expand search to include collapsed processors?");
+
+            return;
+        }
+
+        let num_results = self.config.search_state.result_set.len();
+        if num_results >= SearchState::MAX_SEARCH_RESULTS {
+            ui.label(format!(
+                "Found {} results. (Limited to {}.)",
+                num_results,
+                SearchState::MAX_SEARCH_RESULTS
+            ));
+        } else {
+            ui.label(format!("Found {} results.", num_results));
+        }
+
+        self.config.search_state.build_entry_tree();
+
+        ScrollArea::vertical()
+            // Hack: estimate size of bottom UI.
+            .max_height(ui.available_height() - 70.0)
+            .auto_shrink([false; 2])
+            .show(ui, |ui| {
+                let root_tree = &self.config.search_state.entry_tree;
+                for (level0_index, level0_subtree) in root_tree {
+                    let level0_slot = &mut self.panel.slots[*level0_index as usize];
+                    ui.collapsing(&level0_slot.long_name, |ui| {
+                        for (level1_index, level1_subtree) in level0_subtree {
+                            let level1_slot = &mut level0_slot.slots[*level1_index as usize];
+                            ui.collapsing(&level1_slot.long_name, |ui| {
+                                for level2_index in level1_subtree {
+                                    let level2_slot =
+                                        &mut level1_slot.slots[*level2_index as usize];
+                                    ui.collapsing(&level2_slot.long_name, |ui| {
+                                        let cache = &self.config.search_state.result_cache;
+                                        let cache = cache.get(&level2_slot.entry_id).unwrap();
+                                        for tile_cache in cache.values() {
+                                            for item in tile_cache.values() {
+                                                let button =
+                                                    egui::widgets::Button::new(&item.title).small();
+                                                if ui.add(button).clicked() {
+                                                    let interval = item
+                                                        .interval
+                                                        .grow(item.interval.duration_ns() / 20);
+                                                    ProfApp::zoom(cx, interval);
+                                                    self.config.search_state.item_select = Some((
+                                                        level2_slot.entry_id.clone(),
+                                                        item.irow,
+                                                    ));
+                                                    level2_slot.expanded = true;
+                                                    level1_slot.expanded = true;
+                                                    level0_slot.expanded = true;
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+    }
+
+    fn search_controls(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
+        const WIDGET_PADDING: f32 = 8.0;
+        ui.heading(format!("Profile {}: Search", self.index));
+        ui.add_space(WIDGET_PADDING);
+        self.search_box(ui, cx);
+        ui.add_space(WIDGET_PADDING);
+        self.search_results(ui, cx);
     }
 }
 
@@ -1083,6 +1466,8 @@ impl ProfApp {
         cx.zoom_state.index = cx.zoom_state.levels.len() - 1;
         cx.interval_state.start_buffer = cx.view_interval.start.to_string();
         cx.interval_state.stop_buffer = cx.view_interval.stop.to_string();
+        cx.interval_state.start_error = None;
+        cx.interval_state.stop_error = None;
     }
 
     fn undo_zoom(cx: &mut Context) {
@@ -1093,6 +1478,8 @@ impl ProfApp {
         cx.view_interval = cx.zoom_state.levels[cx.zoom_state.index];
         cx.interval_state.start_buffer = cx.view_interval.start.to_string();
         cx.interval_state.stop_buffer = cx.view_interval.stop.to_string();
+        cx.interval_state.start_error = None;
+        cx.interval_state.stop_error = None;
     }
 
     fn redo_zoom(cx: &mut Context) {
@@ -1103,6 +1490,8 @@ impl ProfApp {
         cx.view_interval = cx.zoom_state.levels[cx.zoom_state.index];
         cx.interval_state.start_buffer = cx.view_interval.start.to_string();
         cx.interval_state.stop_buffer = cx.view_interval.stop.to_string();
+        cx.interval_state.start_error = None;
+        cx.interval_state.stop_error = None;
     }
 
     fn keyboard(ctx: &egui::Context, cx: &mut Context) {
@@ -1351,8 +1740,6 @@ impl eframe::App for ProfApp {
             // Just set this on every frame for now
             cx.subheading_size = (heading + body) * 0.5;
 
-            ui.heading("Legion Prof Tech Demo");
-
             const WIDGET_PADDING: f32 = 8.0;
             ui.add_space(WIDGET_PADDING);
 
@@ -1363,11 +1750,12 @@ impl eframe::App for ProfApp {
                 });
             }
 
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.heading("Task Details");
-                ui.label("Click on a task to see it displayed here.");
-            });
+            for window in windows.iter_mut() {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    window.search_controls(ui, cx);
+                });
+            }
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.horizontal(|ui| {

@@ -68,6 +68,10 @@ pub struct Item {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ItemMeta {
     pub item_uid: ItemUID,
+    // As opposed to the interval in Item, which may get expanded for
+    // visibility, or sliced up into multiple tiles, this interval covers the
+    // entire duration of the original item, unexpanded and unsliced.
+    pub original_interval: Interval,
     pub title: String,
     pub fields: Vec<(String, Field)>,
 }
@@ -199,6 +203,18 @@ impl EntryID {
                 .try_into()
                 .map_or(EntryIndex::Summary, EntryIndex::Slot),
         )
+    }
+
+    pub fn has_prefix(&self, prefix: &EntryID) -> bool {
+        if prefix.0.len() > self.0.len() {
+            return false;
+        }
+        for (a, b) in self.0.iter().zip(prefix.0.iter()) {
+            if a != b {
+                return false;
+            }
+        }
+        true
     }
 }
 
