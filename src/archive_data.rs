@@ -201,6 +201,8 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 .collect();
             let full = level == self.levels - 1;
 
+            println!("Writing level {} with {} tiles", level, num_tiles);
+
             for entry_id in &entry_ids {
                 match entry_id.last_index().unwrap() {
                     EntryIndex::Summary => {
