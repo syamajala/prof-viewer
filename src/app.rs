@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::{
     DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, ItemMeta, ItemUID, SlotMetaTileData,
-    SlotTileData, SummaryTileData, TileID, UtilPoint,
+    SlotTileData, SummaryTileData, TileID, TileSet, UtilPoint,
 };
 use crate::deferred_data::{CountingDeferredDataSource, DeferredDataSource};
 use crate::timestamp::{Interval, Timestamp, TimestampParseError};
@@ -111,10 +111,14 @@ struct Config {
 
     // This is just for the local profile
     interval: Interval,
+    tile_set: TileSet,
 
     data_source: CountingDeferredDataSource<Box<dyn DeferredDataSource>>,
 
     search_state: SearchState,
+
+    last_request_interval: Option<Interval>,
+    request_tile_cache: Vec<TileID>,
 }
 
 struct Window {
@@ -1095,27 +1099,63 @@ impl SearchState {
 }
 
 impl Config {
-    fn new(data_source: Box<dyn DeferredDataSource>, info: &DataSourceInfo) -> Self {
+    fn new(data_source: Box<dyn DeferredDataSource>, info: DataSourceInfo) -> Self {
         let max_node = info.entry_info.nodes();
         let interval = info.interval;
+        let tile_set = info.tile_set;
 
         Self {
             min_node: 0,
             max_node,
             interval,
+            tile_set,
             data_source: CountingDeferredDataSource::new(data_source),
             search_state: SearchState::default(),
+            last_request_interval: None,
+            request_tile_cache: Vec::new(),
         }
     }
 
     fn request_tiles(&mut self, request_interval: Interval) -> Vec<TileID> {
-        // For now, always return a single tile
-        vec![TileID(request_interval)]
+        if self.last_request_interval == Some(request_interval) {
+            return self.request_tile_cache.clone();
+        }
+
+        if self.tile_set.tiles.is_empty() {
+            // For dynamic profiles, just return the request as one tile.
+            self.request_tile_cache = vec![TileID(request_interval)];
+            return self.request_tile_cache.clone();
+        }
+
+        // We're in a static profile. Estimate the best zoom level, where
+        // "best" minimizes the ratio of the tile size to request size.
+        let request_duration = request_interval.duration_ns();
+        let chosen_level = self
+            .tile_set
+            .tiles
+            .iter()
+            .min_by_key(|level| {
+                let d = level.first().unwrap().0.duration_ns();
+                if d < request_duration {
+                    request_duration / d
+                } else {
+                    d / request_duration
+                }
+            })
+            .unwrap();
+
+        // Now filter to just tiles overlapping the requested interval.
+        self.request_tile_cache = chosen_level
+            .iter()
+            .filter(|tile| request_interval.overlaps(tile.0))
+            .copied()
+            .collect();
+        self.request_tile_cache.clone()
     }
 }
 
 impl Window {
-    fn new(data_source: Box<dyn DeferredDataSource>, info: &DataSourceInfo, index: u64) -> Self {
+    fn new(data_source: Box<dyn DeferredDataSource>, info: DataSourceInfo, index: u64) -> Self {
         Self {
             panel: Panel::new(&info.entry_info, EntryID::root()),
             index,
@@ -1665,7 +1705,7 @@ impl eframe::App for ProfApp {
             // We made one request, so we know there is always zero or one
             // elements in this list.
             if let Some(info) = source.get_infos().pop() {
-                let window = Window::new(source, &info, windows.len() as u64);
+                let window = Window::new(source, info, windows.len() as u64);
                 if windows.is_empty() {
                     cx.total_interval = window.config.interval;
                 } else {
