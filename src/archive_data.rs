@@ -184,7 +184,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
 
         let mut tile_set = Vec::new();
 
-        for level in 0..=self.levels {
+        for level in 0..self.levels {
             let num_tiles = self.branch_factor.pow(level) as i64;
             let duration = info.interval.duration_ns();
             let tile_ids: Vec<_> = (0..num_tiles)
