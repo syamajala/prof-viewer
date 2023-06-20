@@ -20,6 +20,11 @@ pub struct TileRequestRef<'a> {
     pub tile_id: TileID,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct TileQuery {
+    pub full: bool,
+}
+
 impl TileRequestPath {
     pub fn parse(&self) -> Result<TileRequest, SlugParseError> {
         Ok(TileRequest {

@@ -126,15 +126,21 @@ pub struct SlotMetaTile {
 pub trait DataSource {
     fn fetch_info(&self) -> DataSourceInfo;
     fn fetch_summary_tile(&self, entry_id: &EntryID, tile_id: TileID) -> SummaryTile;
-    fn fetch_slot_tile(&self, entry_id: &EntryID, tile_id: TileID) -> SlotTile;
-    fn fetch_slot_meta_tile(&self, entry_id: &EntryID, tile_id: TileID) -> SlotMetaTile;
+    fn fetch_slot_tile(&self, entry_id: &EntryID, tile_id: TileID, full: bool) -> SlotTile;
+    fn fetch_slot_meta_tile(&self, entry_id: &EntryID, tile_id: TileID, full: bool)
+        -> SlotMetaTile;
 }
 
 pub trait DataSourceMut {
     fn fetch_info(&mut self) -> DataSourceInfo;
     fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SummaryTile;
-    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SlotTile;
-    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SlotMetaTile;
+    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) -> SlotTile;
+    fn fetch_slot_meta_tile(
+        &mut self,
+        entry_id: &EntryID,
+        tile_id: TileID,
+        full: bool,
+    ) -> SlotMetaTile;
 }
 
 impl<T: DataSource> DataSourceMut for T {
@@ -144,11 +150,16 @@ impl<T: DataSource> DataSourceMut for T {
     fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SummaryTile {
         DataSource::fetch_summary_tile(self, entry_id, tile_id)
     }
-    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SlotTile {
-        DataSource::fetch_slot_tile(self, entry_id, tile_id)
+    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) -> SlotTile {
+        DataSource::fetch_slot_tile(self, entry_id, tile_id, full)
     }
-    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SlotMetaTile {
-        DataSource::fetch_slot_meta_tile(self, entry_id, tile_id)
+    fn fetch_slot_meta_tile(
+        &mut self,
+        entry_id: &EntryID,
+        tile_id: TileID,
+        full: bool,
+    ) -> SlotMetaTile {
+        DataSource::fetch_slot_meta_tile(self, entry_id, tile_id, full)
     }
 }
 

@@ -7,9 +7,9 @@ pub trait DeferredDataSource {
     fn get_infos(&mut self) -> Vec<DataSourceInfo>;
     fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID);
     fn get_summary_tiles(&mut self) -> Vec<SummaryTile>;
-    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID);
+    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool);
     fn get_slot_tiles(&mut self) -> Vec<SlotTile>;
-    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID);
+    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool);
     fn get_slot_meta_tiles(&mut self) -> Vec<SlotMetaTile>;
 }
 
@@ -51,18 +51,20 @@ impl<T: DataSourceMut> DeferredDataSource for DeferredDataSourceWrapper<T> {
         std::mem::take(&mut self.summary_tiles)
     }
 
-    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         self.slot_tiles
-            .push(self.data_source.fetch_slot_tile(entry_id, tile_id));
+            .push(self.data_source.fetch_slot_tile(entry_id, tile_id, full));
     }
 
     fn get_slot_tiles(&mut self) -> Vec<SlotTile> {
         std::mem::take(&mut self.slot_tiles)
     }
 
-    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
-        self.slot_meta_tiles
-            .push(self.data_source.fetch_slot_meta_tile(entry_id, tile_id));
+    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
+        self.slot_meta_tiles.push(
+            self.data_source
+                .fetch_slot_meta_tile(entry_id, tile_id, full),
+        );
     }
 
     fn get_slot_meta_tiles(&mut self) -> Vec<SlotMetaTile> {
@@ -120,9 +122,9 @@ impl<T: DeferredDataSource> DeferredDataSource for CountingDeferredDataSource<T>
         self.finish_request(result)
     }
 
-    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         self.start_request();
-        self.data_source.fetch_slot_tile(entry_id, tile_id)
+        self.data_source.fetch_slot_tile(entry_id, tile_id, full)
     }
 
     fn get_slot_tiles(&mut self) -> Vec<SlotTile> {
@@ -130,9 +132,10 @@ impl<T: DeferredDataSource> DeferredDataSource for CountingDeferredDataSource<T>
         self.finish_request(result)
     }
 
-    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         self.start_request();
-        self.data_source.fetch_slot_meta_tile(entry_id, tile_id)
+        self.data_source
+            .fetch_slot_meta_tile(entry_id, tile_id, full)
     }
 
     fn get_slot_meta_tiles(&mut self) -> Vec<SlotMetaTile> {
@@ -158,16 +161,16 @@ impl DeferredDataSource for Box<dyn DeferredDataSource> {
         self.as_mut().get_summary_tiles()
     }
 
-    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
-        self.as_mut().fetch_slot_tile(entry_id, tile_id)
+    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
+        self.as_mut().fetch_slot_tile(entry_id, tile_id, full)
     }
 
     fn get_slot_tiles(&mut self) -> Vec<SlotTile> {
         self.as_mut().get_slot_tiles()
     }
 
-    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
-        self.as_mut().fetch_slot_meta_tile(entry_id, tile_id)
+    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
+        self.as_mut().fetch_slot_meta_tile(entry_id, tile_id, full)
     }
 
     fn get_slot_meta_tiles(&mut self) -> Vec<SlotMetaTile> {

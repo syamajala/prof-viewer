@@ -85,13 +85,14 @@ impl DeferredDataSource for HTTPClientDataSource {
         std::mem::take(&mut self.summary_tiles.lock().unwrap())
     }
 
-    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         let req = TileRequestRef { entry_id, tile_id };
-        let url = self
+        let mut url = self
             .baseurl
             .join("slot_tile/")
             .and_then(|u| u.join(&req.to_slug()))
             .expect("invalid baseurl");
+        url.set_query(Some(&format!("full={}", full)));
         self.request::<SlotTile>(url, self.slot_tiles.clone());
     }
 
@@ -99,13 +100,14 @@ impl DeferredDataSource for HTTPClientDataSource {
         std::mem::take(&mut self.slot_tiles.lock().unwrap())
     }
 
-    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         let req = TileRequestRef { entry_id, tile_id };
-        let url = self
+        let mut url = self
             .baseurl
             .join("slot_meta_tile/")
             .and_then(|u| u.join(&req.to_slug()))
             .expect("invalid baseurl");
+        url.set_query(Some(&format!("full={}", full)));
         self.request::<SlotMetaTile>(url, self.slot_meta_tiles.clone());
     }
 

@@ -310,7 +310,7 @@ impl DataSourceMut for RandomDataSource {
         }
     }
 
-    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SlotTile {
+    fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, _full: bool) -> SlotTile {
         let items = &self.generate_slot(entry_id).0;
 
         let mut slot_items = Vec::new();
@@ -335,7 +335,12 @@ impl DataSourceMut for RandomDataSource {
         }
     }
 
-    fn fetch_slot_meta_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SlotMetaTile {
+    fn fetch_slot_meta_tile(
+        &mut self,
+        entry_id: &EntryID,
+        tile_id: TileID,
+        _full: bool,
+    ) -> SlotMetaTile {
         let (items, item_metas) = &self.generate_slot(entry_id);
 
         let mut slot_items = Vec::new();

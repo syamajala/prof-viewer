@@ -199,6 +199,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                     TileID(Interval::new(start, stop))
                 })
                 .collect();
+            let full = level == self.levels - 1;
 
             for entry_id in &entry_ids {
                 match entry_id.last_index().unwrap() {
@@ -209,8 +210,9 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                     }
                     EntryIndex::Slot(..) => {
                         for tile_id in &tile_ids {
-                            self.data_source.fetch_slot_tile(entry_id, *tile_id);
-                            self.data_source.fetch_slot_meta_tile(entry_id, *tile_id);
+                            self.data_source.fetch_slot_tile(entry_id, *tile_id, full);
+                            self.data_source
+                                .fetch_slot_meta_tile(entry_id, *tile_id, full);
                         }
                     }
                 }

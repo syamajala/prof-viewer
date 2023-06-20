@@ -485,7 +485,9 @@ impl Slot {
 
     fn inflate(&mut self, config: &mut Config, cx: &mut Context) {
         for tile_id in config.request_tiles(cx.view_interval) {
-            config.data_source.fetch_slot_tile(&self.entry_id, tile_id);
+            config
+                .data_source
+                .fetch_slot_tile(&self.entry_id, tile_id, false);
             self.tile_ids.push(tile_id);
             self.tiles.insert(tile_id, None);
         }
@@ -501,7 +503,7 @@ impl Slot {
             .or_insert_with(|| {
                 config
                     .data_source
-                    .fetch_slot_meta_tile(&self.entry_id, tile_id);
+                    .fetch_slot_meta_tile(&self.entry_id, tile_id, false);
                 None
             })
             .as_ref()

@@ -10,7 +10,7 @@ use actix_web::{
 use serde::Serialize;
 
 use crate::data::DataSource;
-use crate::http::schema::TileRequestPath;
+use crate::http::schema::{TileQuery, TileRequestPath};
 
 struct AppState {
     data_source: Box<dyn DataSource + Send + Sync + 'static>,
@@ -40,43 +40,45 @@ async fn fetch_info(state: web::Data<AppState>) -> Result<impl Responder> {
 
 #[get("/summary_tile/{entry_id}/{tile_id}")]
 async fn fetch_summary_tile(
-    req: web::Path<TileRequestPath>,
+    path: web::Path<TileRequestPath>,
     state: web::Data<AppState>,
 ) -> Result<impl Responder> {
-    let req = req
+    let path = path
         .parse()
         .map_err(|e| error::ErrorBadRequest(format!("bad request: {}", e)))?;
     let result = state
         .data_source
-        .fetch_summary_tile(&req.entry_id, req.tile_id);
+        .fetch_summary_tile(&path.entry_id, path.tile_id);
     encode(result)
 }
 
 #[get("/slot_tile/{entry_id}/{tile_id}")]
 async fn fetch_slot_tile(
-    req: web::Path<TileRequestPath>,
+    path: web::Path<TileRequestPath>,
+    query: web::Query<TileQuery>,
     state: web::Data<AppState>,
 ) -> Result<impl Responder> {
-    let req = req
+    let path = path
         .parse()
         .map_err(|e| error::ErrorBadRequest(format!("bad request: {}", e)))?;
     let result = state
         .data_source
-        .fetch_slot_tile(&req.entry_id, req.tile_id);
+        .fetch_slot_tile(&path.entry_id, path.tile_id, query.full);
     encode(result)
 }
 
 #[get("/slot_meta_tile/{entry_id}/{tile_id}")]
 async fn fetch_slot_meta_tile(
-    req: web::Path<TileRequestPath>,
+    path: web::Path<TileRequestPath>,
+    query: web::Query<TileQuery>,
     state: web::Data<AppState>,
 ) -> Result<impl Responder> {
-    let req = req
+    let path = path
         .parse()
         .map_err(|e| error::ErrorBadRequest(format!("bad request: {}", e)))?;
     let result = state
         .data_source
-        .fetch_slot_meta_tile(&req.entry_id, req.tile_id);
+        .fetch_slot_meta_tile(&path.entry_id, path.tile_id, query.full);
     encode(result)
 }
 
