@@ -55,11 +55,11 @@ where
     Ok(())
 }
 
-fn spawn_write<T>(path: PathBuf, data: T, zstd_compression: i32)
+fn spawn_write<T>(path: PathBuf, data: T, zstd_compression: i32, scope: &rayon::Scope<'_>)
 where
     T: Serialize + Send + Sync + 'static,
 {
-    rayon::spawn(move || {
+    scope.spawn(move |_| {
         // FIXME (Elliott): is there a better way to handle I/O failure?
         write_data(path, data, zstd_compression).unwrap();
     });
@@ -115,12 +115,12 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
         self.data_source.get_infos().pop()
     }
 
-    fn write_info(&mut self, info: DataSourceInfo) {
+    fn write_info(&mut self, info: DataSourceInfo, scope: &rayon::Scope<'_>) {
         let path = self.path.join("info");
-        spawn_write(path, info, self.zstd_compression);
+        spawn_write(path, info, self.zstd_compression, scope);
     }
 
-    fn write_summary_tiles(&mut self) {
+    fn write_summary_tiles(&mut self, scope: &rayon::Scope<'_>) {
         for tile in self.data_source.get_summary_tiles() {
             let mut path = self.path.join("summary_tile");
             let req = TileRequestRef {
@@ -128,11 +128,11 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 tile_id: tile.tile_id,
             };
             path.push(req.to_slug());
-            spawn_write(path, tile, self.zstd_compression);
+            spawn_write(path, tile, self.zstd_compression, scope);
         }
     }
 
-    fn write_slot_tiles(&mut self) {
+    fn write_slot_tiles(&mut self, scope: &rayon::Scope<'_>) {
         for tile in self.data_source.get_slot_tiles() {
             let mut path = self.path.join("slot_tile");
             let req = TileRequestRef {
@@ -140,11 +140,11 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 tile_id: tile.tile_id,
             };
             path.push(req.to_slug());
-            spawn_write(path, tile, self.zstd_compression);
+            spawn_write(path, tile, self.zstd_compression, scope);
         }
     }
 
-    fn write_slot_meta_tiles(&mut self) {
+    fn write_slot_meta_tiles(&mut self, scope: &rayon::Scope<'_>) {
         for tile in self.data_source.get_slot_meta_tiles() {
             let mut path = self.path.join("slot_meta_tile");
             let req = TileRequestRef {
@@ -152,12 +152,13 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 tile_id: tile.tile_id,
             };
             path.push(req.to_slug());
-            spawn_write(path, tile, self.zstd_compression);
+            spawn_write(path, tile, self.zstd_compression, scope);
         }
     }
 
     pub fn write(mut self) -> io::Result<()> {
         self.path = create_unique_dir(&self.path, self.force)?;
+        println!("Created output directory {:?}", &self.path);
         create_dir(self.path.join("summary_tile"))?;
         create_dir(self.path.join("slot_tile"))?;
         create_dir(self.path.join("slot_meta_tile"))?;
@@ -215,18 +216,22 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 }
             }
 
-            while self.data_source.outstanding_requests() > 0 {
-                self.write_summary_tiles();
-                self.write_slot_tiles();
-                self.write_slot_meta_tiles();
-            }
+            rayon::in_place_scope(|s| {
+                while self.data_source.outstanding_requests() > 0 {
+                    self.write_summary_tiles(s);
+                    self.write_slot_tiles(s);
+                    self.write_slot_meta_tiles(s);
+                }
+            });
 
             tile_set.push(tile_ids);
         }
 
         info.tile_set = TileSet { tiles: tile_set };
 
-        self.write_info(info);
+        rayon::in_place_scope(|s| {
+            self.write_info(info, s);
+        });
 
         Ok(())
     }
