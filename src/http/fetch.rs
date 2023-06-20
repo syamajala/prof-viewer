@@ -1,10 +1,12 @@
+use bytes::Bytes;
+
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::blocking::RequestBuilder;
 #[cfg(target_arch = "wasm32")]
 use reqwest::RequestBuilder;
 
 pub struct DataSourceResponse {
-    pub body: String,
+    pub body: Bytes,
 }
 
 pub fn fetch(

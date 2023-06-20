@@ -18,15 +18,15 @@ pub fn fetch(
     on_done: Box<dyn FnOnce(Result<DataSourceResponse, String>) + Send>,
 ) {
     spawn_future(async move {
-        let text = request
+        let result = request
             .send()
             .await
-            .expect("send failed")
-            .text()
+            .expect("request failed")
+            .bytes()
             .await
-            .expect("unable to get text");
+            .expect("unable to get bytes");
 
-        let res = Ok(DataSourceResponse { body: text });
+        let res = Ok(DataSourceResponse { body: result });
 
         on_done(res)
     });

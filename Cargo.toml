@@ -21,7 +21,10 @@ eframe = { version = "0.22.0", default-features = false, features = [
 log = "0.4"
 
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1" }
+ciborium = { version = "0.2" }
+zstd = { version = "0.12" }
+
+bytes = "1" # for reqwest binary data
 
 rand = { version = "0.8" }
 # transitive depedency, required for rand to support wasm
@@ -41,11 +44,11 @@ actix-cors = { version = "0.6", optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.10"
 rayon = "1.7"
-reqwest = { version = "0.11", features = ["json", "blocking"], optional = true }
+reqwest = { version = "0.11", features = ["blocking"], optional = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-reqwest = { version = "0.11", features = ["json"], optional = true }
+reqwest = { version = "0.11", features = [], optional = true }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "Location"] }

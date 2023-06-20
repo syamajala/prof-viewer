@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use bytes::Buf;
+
 use log::info;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -46,11 +48,13 @@ impl HTTPClientDataSource {
             .client
             .get(url)
             .header("Accept", "*/*")
-            .header("Content-Type", "javascript/json;");
+            .header("Content-Type", "application/octet-stream;");
         fetch(
             request,
             move |response: Result<DataSourceResponse, String>| {
-                let result = serde_json::from_str::<T>(&response.unwrap().body).unwrap();
+                let f = response.unwrap().body.reader();
+                let f = zstd::Decoder::new(f).expect("zstd decompression failed");
+                let result = ciborium::from_reader(f).expect("cbor decoding failed");
                 container.lock().unwrap().push(result);
             },
         );

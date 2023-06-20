@@ -7,6 +7,8 @@ use actix_web::{
     App, HttpServer, Responder, Result,
 };
 
+use serde::Serialize;
+
 use crate::data::DataSource;
 use crate::http::schema::TileRequestPath;
 
@@ -20,10 +22,20 @@ pub struct DataSourceHTTPServer {
     state: AppState,
 }
 
+fn encode<T>(data: T) -> Result<Vec<u8>>
+where
+    T: Serialize,
+{
+    let mut f = zstd::Encoder::new(Vec::new(), 1)?;
+    ciborium::into_writer(&data, &mut f).expect("ciborium encoding failed");
+    let f = f.finish()?;
+    Ok(f)
+}
+
 #[get("/info")]
 async fn fetch_info(state: web::Data<AppState>) -> Result<impl Responder> {
     let result = state.data_source.fetch_info();
-    Ok(web::Json(result))
+    encode(result)
 }
 
 #[get("/summary_tile/{entry_id}/{tile_id}")]
@@ -37,7 +49,7 @@ async fn fetch_summary_tile(
     let result = state
         .data_source
         .fetch_summary_tile(&req.entry_id, req.tile_id);
-    Ok(web::Json(result))
+    encode(result)
 }
 
 #[get("/slot_tile/{entry_id}/{tile_id}")]
@@ -51,7 +63,7 @@ async fn fetch_slot_tile(
     let result = state
         .data_source
         .fetch_slot_tile(&req.entry_id, req.tile_id);
-    Ok(web::Json(result))
+    encode(result)
 }
 
 #[get("/slot_meta_tile/{entry_id}/{tile_id}")]
@@ -65,7 +77,7 @@ async fn fetch_slot_meta_tile(
     let result = state
         .data_source
         .fetch_slot_meta_tile(&req.entry_id, req.tile_id);
-    Ok(web::Json(result))
+    encode(result)
 }
 
 impl DataSourceHTTPServer {
@@ -98,7 +110,6 @@ impl DataSourceHTTPServer {
                 .max_age(3600);
             App::new()
                 .wrap(middleware::Logger::default())
-                .wrap(middleware::Compress::default())
                 .wrap(cors)
                 .app_data(state.clone())
                 .service(fetch_info)

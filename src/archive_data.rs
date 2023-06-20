@@ -1,5 +1,5 @@
 use std::fs::{create_dir, remove_dir_all, File};
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -15,6 +15,7 @@ pub struct DataSourceArchiveWriter<T: DeferredDataSource> {
     branch_factor: u64,
     path: PathBuf,
     force: bool,
+    zstd_compression: i32,
 }
 
 fn create_unique_dir<P: AsRef<Path>>(path: P, force: bool) -> io::Result<PathBuf> {
@@ -44,22 +45,23 @@ fn create_unique_dir<P: AsRef<Path>>(path: P, force: bool) -> io::Result<PathBuf
     Ok(path)
 }
 
-fn write_data<T>(path: PathBuf, data: T) -> io::Result<()>
+fn write_data<T>(path: PathBuf, data: T, zstd_compression: i32) -> io::Result<()>
 where
     T: Serialize,
 {
-    let mut f = File::create(path)?;
-    f.write_all(&serde_json::to_vec(&data)?)?;
+    let mut f = zstd::Encoder::new(File::create(path)?, zstd_compression)?;
+    ciborium::into_writer(&data, &mut f).expect("ciborium encoding failed");
+    f.finish()?;
     Ok(())
 }
 
-fn spawn_write<T>(path: PathBuf, data: T)
+fn spawn_write<T>(path: PathBuf, data: T, zstd_compression: i32)
 where
     T: Serialize + Send + Sync + 'static,
 {
     rayon::spawn(move || {
         // FIXME (Elliott): is there a better way to handle I/O failure?
-        write_data(path, data).unwrap();
+        write_data(path, data, zstd_compression).unwrap();
     });
 }
 
@@ -94,6 +96,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
         branch_factor: u64,
         path: impl AsRef<Path>,
         force: bool,
+        zstd_compression: i32,
     ) -> Self {
         assert!(levels >= 1);
         assert!(branch_factor >= 2);
@@ -103,6 +106,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
             branch_factor,
             path: path.as_ref().to_owned(),
             force,
+            zstd_compression,
         }
     }
 
@@ -113,7 +117,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
 
     fn write_info(&mut self, info: DataSourceInfo) {
         let path = self.path.join("info");
-        spawn_write(path, info);
+        spawn_write(path, info, self.zstd_compression);
     }
 
     fn write_summary_tiles(&mut self) {
@@ -124,7 +128,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 tile_id: tile.tile_id,
             };
             path.push(req.to_slug());
-            spawn_write(path, tile);
+            spawn_write(path, tile, self.zstd_compression);
         }
     }
 
@@ -136,7 +140,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 tile_id: tile.tile_id,
             };
             path.push(req.to_slug());
-            spawn_write(path, tile);
+            spawn_write(path, tile, self.zstd_compression);
         }
     }
 
@@ -148,7 +152,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 tile_id: tile.tile_id,
             };
             path.push(req.to_slug());
-            spawn_write(path, tile);
+            spawn_write(path, tile, self.zstd_compression);
         }
     }
 
