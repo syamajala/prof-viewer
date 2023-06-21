@@ -106,10 +106,11 @@ struct SearchState {
 }
 
 struct Config {
-    // Node selection controls
+    // Node selection
     min_node: u64,
     max_node: u64,
 
+    // Kind selection
     kinds: Vec<String>,
     kind_filter: BTreeMap<String, bool>,
 
@@ -120,6 +121,9 @@ struct Config {
     data_source: CountingDeferredDataSource<Box<dyn DeferredDataSource>>,
 
     search_state: SearchState,
+
+    // Tasks selected by the user
+    tasks_selected: BTreeMap<ItemUID, (ItemMeta, EntryID, usize)>,
 
     last_request_interval: Option<Interval>,
     request_tile_cache: Vec<TileID>,
@@ -603,6 +607,8 @@ impl Slot {
         }
 
         if let Some((row, item_idx, item_rect, tile_id)) = interact_item {
+            // Hack: clone here  to avoid mutability conflict.
+            let entry_id = self.entry_id.clone();
             if let Some(tile_meta) = self.fetch_meta_tile(tile_id, config) {
                 let item_meta = &tile_meta.items[row][item_idx];
                 ui.show_tooltip_ui("task_tooltip", &item_rect, |ui| {
@@ -628,6 +634,20 @@ impl Slot {
                                 ui.label(name);
                             }
                         }
+                    }
+                    ui.label("(Click to show details.)");
+                });
+
+                // Also mark task as selected if the mouse has been clicked
+                ui.input(|i| {
+                    // A "click" is measured on *release*, assuming certain
+                    // properties hold (e.g., the button was held less than
+                    // some duration, and it moved less than some amount).
+                    if i.pointer.any_click() && i.pointer.primary_released() {
+                        let irow = rows as usize - row - 1;
+                        config
+                            .tasks_selected
+                            .insert(item_meta.item_uid, (item_meta.clone(), entry_id, irow));
                     }
                 });
             }
@@ -1136,6 +1156,7 @@ impl Config {
             tile_set,
             data_source: CountingDeferredDataSource::new(data_source),
             search_state: SearchState::default(),
+            tasks_selected: BTreeMap::new(),
             last_request_interval: None,
             request_tile_cache: Vec::new(),
         }
@@ -1773,19 +1794,11 @@ impl ProfApp {
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .column(Column::auto())
             .column(Column::remainder())
-            .header(18.0, |mut header| {
-                header.col(|ui| {
-                    ui.strong("Action");
-                });
-                header.col(|ui| {
-                    ui.strong("Binding");
-                });
-            })
             .body(|mut body| {
                 let mut show_row = |a, b| {
                     body.row(18.0, |mut row| {
                         row.col(|ui| {
-                            ui.label(a);
+                            ui.strong(a);
                         });
                         row.col(|ui| {
                             ui.label(b);
@@ -1803,6 +1816,66 @@ impl ProfApp {
                 show_row("Reset Vertical Spacing", "Ctrl + Alt + 0");
                 show_row("Toggle This Window", "H");
             });
+    }
+
+    fn display_task_details(ui: &mut egui::Ui, item_meta: &ItemMeta, cx: &Context) -> bool {
+        TableBuilder::new(ui)
+            .striped(true)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(Column::auto())
+            .column(Column::remainder())
+            .body(|mut body| {
+                let mut show_row = |a: &str, b: String| {
+                    // We need to manually work out the height of the labels
+                    // so that the table knows how large to make each row.
+                    let width = body.widths()[1];
+
+                    let ui = body.ui_mut();
+                    let style = ui.style();
+                    let font_id = TextStyle::Body.resolve(style);
+                    let visuals = style.noninteractive();
+                    let layout = ui.painter().layout(b, font_id, visuals.text_color(), width);
+                    let height = 18.0 * layout.rows.len() as f32;
+
+                    body.row(height, |mut row| {
+                        row.col(|ui| {
+                            ui.strong(a);
+                        });
+                        row.col(|ui| {
+                            ui.add(egui::Label::new(layout.text()).wrap(true));
+                        });
+                    });
+                };
+
+                show_row("Title", item_meta.title.clone());
+                if cx.debug {
+                    show_row("Item UID", format!("{}", item_meta.item_uid.0));
+                }
+                for (name, field) in &item_meta.fields {
+                    match field {
+                        Field::I64(value) => {
+                            show_row(name, format!("{value}"));
+                        }
+                        Field::U64(value) => {
+                            show_row(name, format!("{value}"));
+                        }
+                        Field::String(value) => {
+                            show_row(name, value.clone());
+                        }
+                        Field::Interval(value) => {
+                            show_row(name, format!("{value}"));
+                        }
+                        Field::Empty => {
+                            show_row(name, "".to_owned());
+                        }
+                    }
+                }
+            });
+        let mut result = false;
+        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            result = ui.button("Zoom to Interval").clicked();
+        });
+        result
     }
 }
 
@@ -1997,6 +2070,33 @@ impl eframe::App for ProfApp {
             .open(&mut cx.show_controls)
             .resizable(false)
             .show(ctx, Self::display_bindings);
+
+        for window in windows.iter_mut() {
+            let mut zoom_target = None;
+            window
+                .config
+                .tasks_selected
+                .retain(|_, (item_meta, entry_id, irow)| {
+                    let mut enabled = true;
+                    let short_title: String = item_meta.title.chars().take(50).collect();
+                    egui::Window::new(short_title)
+                        .id(egui::Id::new(item_meta.item_uid.0))
+                        .open(&mut enabled)
+                        .resizable(true)
+                        .show(ctx, |ui| {
+                            if Self::display_task_details(ui, item_meta, cx) {
+                                zoom_target =
+                                    Some((entry_id.clone(), *irow, item_meta.original_interval));
+                            }
+                        });
+                    enabled
+                });
+            if let Some((entry_id, irow, interval)) = zoom_target {
+                let interval = interval.grow(interval.duration_ns() / 20);
+                ProfApp::zoom(cx, interval);
+                window.config.search_state.item_select = Some((entry_id, irow));
+            }
+        }
 
         Self::keyboard(ctx, cx);
 
