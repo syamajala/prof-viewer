@@ -7,6 +7,7 @@ use std::time::Instant;
 use egui::{
     Align2, Color32, NumExt, Pos2, Rect, RichText, ScrollArea, Slider, Stroke, TextStyle, Vec2,
 };
+use egui_extras::{Column, TableBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
@@ -200,6 +201,9 @@ struct Context {
     toggle_dark_mode: bool,
 
     debug: bool,
+
+    #[serde(skip)]
+    show_controls: bool,
 
     #[serde(skip)]
     zoom_state: ZoomState,
@@ -1546,6 +1550,7 @@ impl ProfApp {
             UndoZoom,
             RedoZoom,
             ResetZoom,
+            ToggleControls,
             NoAction,
         }
         let action = ctx.input(|i| {
@@ -1559,6 +1564,8 @@ impl ProfApp {
                 } else {
                     Actions::NoAction
                 }
+            } else if i.key_pressed(egui::Key::H) {
+                Actions::ToggleControls
             } else {
                 Actions::NoAction
             }
@@ -1567,6 +1574,7 @@ impl ProfApp {
             Actions::UndoZoom => ProfApp::undo_zoom(cx),
             Actions::RedoZoom => ProfApp::redo_zoom(cx),
             Actions::ResetZoom => ProfApp::zoom(cx, cx.total_interval),
+            Actions::ToggleControls => cx.show_controls = !cx.show_controls,
             Actions::NoAction => {}
         }
     }
@@ -1683,6 +1691,39 @@ impl ProfApp {
 
             // ui.show_tooltip_at("timestamp_tooltip", Some(top), format!("t={time}"));
         }
+    }
+
+    fn display_bindings(ui: &mut egui::Ui) {
+        TableBuilder::new(ui)
+            .striped(true)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(Column::auto())
+            .column(Column::remainder())
+            .header(18.0, |mut header| {
+                header.col(|ui| {
+                    ui.strong("Action");
+                });
+                header.col(|ui| {
+                    ui.strong("Binding");
+                });
+            })
+            .body(|mut body| {
+                let mut show_row = |a, b| {
+                    body.row(18.0, |mut row| {
+                        row.col(|ui| {
+                            ui.label(a);
+                        });
+                        row.col(|ui| {
+                            ui.label(b);
+                        });
+                    });
+                };
+                show_row("Zoom to Interval", "Click and Drag");
+                show_row("Undo Zoom", "Ctrl + Left Arrow");
+                show_row("Redo Zoom", "Ctrl + Right Arrow");
+                show_row("Reset Zoom", "Ctrl + 0");
+                show_row("Toggle This Window", "H");
+            });
     }
 }
 
@@ -1813,7 +1854,6 @@ impl eframe::App for ProfApp {
                 });
 
                 ui.horizontal(|ui| {
-                    // swap to dark mode
                     let mut current_theme = if cx.toggle_dark_mode {
                         egui::Visuals::dark()
                     } else {
@@ -1848,13 +1888,19 @@ impl eframe::App for ProfApp {
                     }
                 });
 
-                egui::warn_if_debug_build(ui);
+                ui.horizontal(|ui| {
+                    if ui.button("Show Controls").clicked() {
+                        cx.show_controls = true;
+                    }
 
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    ui.separator();
-                    ui.label(format!("FPS: {_fps:.0}"));
-                }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        ui.label(format!("FPS: {_fps:.0}"));
+                    }
+                });
+
+                ui.separator();
+                egui::warn_if_debug_build(ui);
             });
         });
 
@@ -1886,6 +1932,11 @@ impl eframe::App for ProfApp {
 
             Self::cursor(ui, cx);
         });
+
+        egui::Window::new("Controls")
+            .open(&mut cx.show_controls)
+            .resizable(false)
+            .show(ctx, Self::display_bindings);
 
         Self::keyboard(ctx, cx);
 
