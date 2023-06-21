@@ -1572,14 +1572,14 @@ impl ProfApp {
         }
 
         enum Actions {
-            ZoomInX,
-            ZoomOutX,
-            UndoZoomX,
-            RedoZoomX,
-            ResetZoomX,
-            ZoomInY,
-            ZoomOutY,
-            ResetZoomY,
+            ZoomIn,
+            ZoomOut,
+            UndoZoom,
+            RedoZoom,
+            ResetZoom,
+            ExpandVertical,
+            ShrinkVertical,
+            ResetVertical,
             ToggleControls,
             NoAction,
         }
@@ -1587,24 +1587,24 @@ impl ProfApp {
             if i.modifiers.ctrl {
                 if i.modifiers.alt {
                     if i.key_pressed(egui::Key::PlusEquals) {
-                        Actions::ZoomInY
+                        Actions::ExpandVertical
                     } else if i.key_pressed(egui::Key::Minus) {
-                        Actions::ZoomOutY
+                        Actions::ShrinkVertical
                     } else if i.key_pressed(egui::Key::Num0) {
-                        Actions::ResetZoomY
+                        Actions::ResetVertical
                     } else {
                         Actions::NoAction
                     }
                 } else if i.key_pressed(egui::Key::PlusEquals) {
-                    Actions::ZoomInX
+                    Actions::ZoomIn
                 } else if i.key_pressed(egui::Key::Minus) {
-                    Actions::ZoomOutX
+                    Actions::ZoomOut
                 } else if i.key_pressed(egui::Key::ArrowLeft) {
-                    Actions::UndoZoomX
+                    Actions::UndoZoom
                 } else if i.key_pressed(egui::Key::ArrowRight) {
-                    Actions::RedoZoomX
+                    Actions::RedoZoom
                 } else if i.key_pressed(egui::Key::Num0) {
-                    Actions::ResetZoomX
+                    Actions::ResetZoom
                 } else {
                     Actions::NoAction
                 }
@@ -1615,14 +1615,14 @@ impl ProfApp {
             }
         });
         match action {
-            Actions::ZoomInX => ProfApp::zoom_in(cx),
-            Actions::ZoomOutX => ProfApp::zoom_out(cx),
-            Actions::UndoZoomX => ProfApp::undo_zoom(cx),
-            Actions::RedoZoomX => ProfApp::redo_zoom(cx),
-            Actions::ResetZoomX => ProfApp::zoom(cx, cx.total_interval),
-            Actions::ZoomInY => ProfApp::multiply_scale_factor(cx, 2.0),
-            Actions::ZoomOutY => ProfApp::multiply_scale_factor(cx, 0.5),
-            Actions::ResetZoomY => ProfApp::reset_scale_factor(cx),
+            Actions::ZoomIn => ProfApp::zoom_in(cx),
+            Actions::ZoomOut => ProfApp::zoom_out(cx),
+            Actions::UndoZoom => ProfApp::undo_zoom(cx),
+            Actions::RedoZoom => ProfApp::redo_zoom(cx),
+            Actions::ResetZoom => ProfApp::zoom(cx, cx.total_interval),
+            Actions::ExpandVertical => ProfApp::multiply_scale_factor(cx, 2.0),
+            Actions::ShrinkVertical => ProfApp::multiply_scale_factor(cx, 0.5),
+            Actions::ResetVertical => ProfApp::reset_scale_factor(cx),
             Actions::ToggleControls => cx.show_controls = !cx.show_controls,
             Actions::NoAction => {}
         }
@@ -1767,15 +1767,15 @@ impl ProfApp {
                         });
                     });
                 };
-                show_row("Zoom to Interval (X)", "Click and Drag");
-                show_row("Zoom In (X)", "Ctrl + Plus/Equals");
-                show_row("Zoom Out (X)", "Ctrl + Minus");
-                show_row("Undo Zoom (X)", "Ctrl + Left Arrow");
-                show_row("Redo Zoom (X)", "Ctrl + Right Arrow");
-                show_row("Reset Zoom (X)", "Ctrl + 0");
-                show_row("Zoom In (Y)", "Ctrl + Alt + Plus/Equals");
-                show_row("Zoom Out (Y)", "Ctrl + Alt + Minus");
-                show_row("Reset Zoom (Y)", "Ctrl + Alt + 0");
+                show_row("Zoom to Interval", "Click and Drag");
+                show_row("Zoom In", "Ctrl + Plus/Equals");
+                show_row("Zoom Out", "Ctrl + Minus");
+                show_row("Undo Zoom", "Ctrl + Left Arrow");
+                show_row("Redo Zoom", "Ctrl + Right Arrow");
+                show_row("Reset Zoom", "Ctrl + 0");
+                show_row("Expand Vertical Spacing", "Ctrl + Alt + Plus/Equals");
+                show_row("Shrink Vertical Spacing", "Ctrl + Alt + Minus");
+                show_row("Reset Vertical Spacing", "Ctrl + Alt + 0");
                 show_row("Toggle This Window", "H");
             });
     }
