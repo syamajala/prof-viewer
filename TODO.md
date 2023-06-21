@@ -21,6 +21,7 @@
 - [x] Vertical zoom
 - [x] Search (with load all data option to get better search results)
 - [x] Open window to show key bindings
+- [x] Filter by kind
 - [ ] Horizontal pan (including drag, keyboard, horizontal scroll wheel)
 - [ ] Task detail view
 - [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse)

@@ -110,6 +110,9 @@ struct Config {
     min_node: u64,
     max_node: u64,
 
+    kinds: Vec<String>,
+    kind_filter: BTreeMap<String, bool>,
+
     // This is just for the local profile
     interval: Interval,
     tile_set: TileSet,
@@ -125,7 +128,6 @@ struct Config {
 struct Window {
     panel: Panel<Panel<Panel<Slot>>>, // nodes -> kind -> proc/chan/mem
     index: u64,
-    kinds: Vec<String>,
     config: Config,
 }
 
@@ -811,9 +813,19 @@ impl<S: Entry> Panel<S> {
         false
     }
 
-    fn is_slot_visible(entry_id: &EntryID, config: &Config) -> bool {
-        let index = entry_id.last_slot_index().unwrap();
-        entry_id.level() != 1 || (index >= config.min_node && index <= config.max_node)
+    fn is_slot_visible(slot: &S, config: &Config) -> bool {
+        let level = slot.entry_id().level();
+        if level == 1 {
+            // Apply node filter.
+            let index = slot.entry_id().last_slot_index().unwrap();
+            index >= config.min_node && index <= config.max_node
+        } else if level == 2 {
+            // Apply kind filter.
+            let kind = slot.label_text();
+            config.kind_filter.get(kind).copied().unwrap_or(true)
+        } else {
+            true
+        }
     }
 }
 
@@ -879,7 +891,7 @@ impl<S: Entry> Entry for Panel<S> {
         if self.expanded || force {
             for slot in &mut self.slots {
                 // Apply visibility settings
-                if !force && !Self::is_slot_visible(slot.entry_id(), config) {
+                if !force && !Self::is_slot_visible(slot, config) {
                     continue;
                 }
 
@@ -893,7 +905,7 @@ impl<S: Entry> Entry for Panel<S> {
         if self.expanded || force {
             for slot in &mut self.slots {
                 // Apply visibility settings
-                if !force && !Self::is_slot_visible(slot.entry_id(), config) {
+                if !force && !Self::is_slot_visible(slot, config) {
                     continue;
                 }
 
@@ -918,7 +930,7 @@ impl<S: Entry> Entry for Panel<S> {
         if self.expanded {
             for slot in &mut self.slots {
                 // Apply visibility settings
-                if !Self::is_slot_visible(slot.entry_id(), config) {
+                if !Self::is_slot_visible(slot, config) {
                     continue;
                 }
 
@@ -954,7 +966,7 @@ impl<S: Entry> Entry for Panel<S> {
                 }
 
                 // Apply visibility settings
-                if !Self::is_slot_visible(slot.entry_id(), config) {
+                if !Self::is_slot_visible(slot, config) {
                     continue;
                 }
 
@@ -1109,12 +1121,17 @@ impl SearchState {
 impl Config {
     fn new(data_source: Box<dyn DeferredDataSource>, info: DataSourceInfo) -> Self {
         let max_node = info.entry_info.nodes();
+        let kinds = info.entry_info.kinds();
         let interval = info.interval;
         let tile_set = info.tile_set;
+
+        let kind_filter = kinds.iter().map(|k| (k.clone(), true)).collect();
 
         Self {
             min_node: 0,
             max_node,
+            kinds,
+            kind_filter,
             interval,
             tile_set,
             data_source: CountingDeferredDataSource::new(data_source),
@@ -1167,7 +1184,6 @@ impl Window {
         Self {
             panel: Panel::new(&info.entry_info, EntryID::root()),
             index,
-            kinds: info.entry_info.kinds(),
             config: Config::new(data_source, info),
         }
     }
@@ -1224,6 +1240,16 @@ impl Window {
         }
     }
 
+    fn filter_by_kind(&mut self, ui: &mut egui::Ui, cx: &Context) {
+        ui.subheading("Filter by Kind", cx);
+        ui.horizontal_wrapped(|ui| {
+            for kind in &self.config.kinds {
+                let enabled = self.config.kind_filter.get_mut(kind).unwrap();
+                ui.toggle_value(enabled, kind);
+            }
+        });
+    }
+
     fn expand_collapse(&mut self, ui: &mut egui::Ui, cx: &Context) {
         let mut toggle_all = |label, toggle| {
             for node in &mut self.panel.slots {
@@ -1238,7 +1264,7 @@ impl Window {
         ui.subheading("Expand/Collapse", cx);
         ui.label("Expand by kind:");
         ui.horizontal_wrapped(|ui| {
-            for kind in &self.kinds {
+            for kind in &self.config.kinds {
                 if ui.button(kind).clicked() {
                     toggle_all(kind.to_lowercase(), false);
                 }
@@ -1246,7 +1272,7 @@ impl Window {
         });
         ui.label("Collapse by kind:");
         ui.horizontal_wrapped(|ui| {
-            for kind in &self.kinds {
+            for kind in &self.config.kinds {
                 if ui.button(kind).clicked() {
                     toggle_all(kind.to_lowercase(), true);
                 }
@@ -1325,6 +1351,8 @@ impl Window {
         ui.heading(format!("Profile {}: Controls", self.index));
         ui.add_space(WIDGET_PADDING);
         self.node_selection(ui, cx);
+        ui.add_space(WIDGET_PADDING);
+        self.filter_by_kind(ui, cx);
         ui.add_space(WIDGET_PADDING);
         self.expand_collapse(ui, cx);
         ui.add_space(WIDGET_PADDING);
@@ -1917,26 +1945,7 @@ impl eframe::App for ProfApp {
                         ctx.set_visuals(current_theme);
                     }
 
-                    let debug_color = if cx.debug {
-                        ui.visuals().hyperlink_color
-                    } else {
-                        ui.visuals().text_color()
-                    };
-
-                    let button = egui::Button::new(
-                        egui::RichText::new("🛠 Debug").color(debug_color).size(12.0),
-                    )
-                    .frame(true);
-                    if ui
-                        .add(button)
-                        .on_hover_text(format!(
-                            "Toggle debug mode {}",
-                            if cx.debug { "off" } else { "on" }
-                        ))
-                        .clicked()
-                    {
-                        cx.debug = !cx.debug;
-                    }
+                    ui.toggle_value(&mut cx.debug, "🛠 Debug");
                 });
 
                 ui.horizontal(|ui| {
