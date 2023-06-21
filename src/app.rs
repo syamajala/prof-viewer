@@ -1540,6 +1540,19 @@ impl ProfApp {
         cx.interval_state.stop_error = None;
     }
 
+    fn zoom_in(cx: &mut Context) {
+        let quarter = -cx.view_interval.duration_ns() / 4;
+        Self::zoom(cx, cx.view_interval.grow(quarter));
+    }
+
+    fn zoom_out(cx: &mut Context) {
+        let half = cx.view_interval.duration_ns() / 2;
+        Self::zoom(
+            cx,
+            cx.view_interval.grow(half).intersection(cx.total_interval),
+        );
+    }
+
     fn keyboard(ctx: &egui::Context, cx: &mut Context) {
         // Focus is elsewhere, don't check any keys
         if ctx.memory(|m| m.focus().is_some()) {
@@ -1547,6 +1560,8 @@ impl ProfApp {
         }
 
         enum Actions {
+            ZoomIn,
+            ZoomOut,
             UndoZoom,
             RedoZoom,
             ResetZoom,
@@ -1555,7 +1570,11 @@ impl ProfApp {
         }
         let action = ctx.input(|i| {
             if i.modifiers.ctrl {
-                if i.key_pressed(egui::Key::ArrowLeft) {
+                if i.key_pressed(egui::Key::PlusEquals) {
+                    Actions::ZoomIn
+                } else if i.key_pressed(egui::Key::Minus) {
+                    Actions::ZoomOut
+                } else if i.key_pressed(egui::Key::ArrowLeft) {
                     Actions::UndoZoom
                 } else if i.key_pressed(egui::Key::ArrowRight) {
                     Actions::RedoZoom
@@ -1571,6 +1590,8 @@ impl ProfApp {
             }
         });
         match action {
+            Actions::ZoomIn => ProfApp::zoom_in(cx),
+            Actions::ZoomOut => ProfApp::zoom_out(cx),
             Actions::UndoZoom => ProfApp::undo_zoom(cx),
             Actions::RedoZoom => ProfApp::redo_zoom(cx),
             Actions::ResetZoom => ProfApp::zoom(cx, cx.total_interval),
@@ -1719,6 +1740,8 @@ impl ProfApp {
                     });
                 };
                 show_row("Zoom to Interval", "Click and Drag");
+                show_row("Zoom In", "Ctrl + Plus/Equals");
+                show_row("Zoom Out", "Ctrl + Minus");
                 show_row("Undo Zoom", "Ctrl + Left Arrow");
                 show_row("Redo Zoom", "Ctrl + Right Arrow");
                 show_row("Reset Zoom", "Ctrl + 0");
