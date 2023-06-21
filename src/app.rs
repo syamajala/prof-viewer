@@ -182,6 +182,8 @@ struct IntervalSelectState {
 #[derive(Default, Deserialize, Serialize)]
 struct Context {
     row_height: f32,
+    #[serde(skip)]
+    scale_factor: f32,
 
     subheading_size: f32,
 
@@ -242,7 +244,7 @@ trait Entry {
 
     fn search(&mut self, config: &mut Config);
 
-    fn label(&mut self, ui: &mut egui::Ui, rect: Rect) {
+    fn label(&mut self, ui: &mut egui::Ui, rect: Rect, cx: &Context) {
         let response = ui.allocate_rect(
             rect,
             if self.is_expandable() {
@@ -263,7 +265,7 @@ trait Entry {
         ui.painter()
             .rect(rect, 0.0, visuals.bg_fill, visuals.bg_stroke);
         ui.painter().text(
-            rect.min + style.spacing.item_spacing,
+            rect.min + style.spacing.item_spacing * Vec2::new(1.0, cx.scale_factor),
             Align2::LEFT_TOP,
             self.label_text(),
             font_id,
@@ -804,7 +806,7 @@ impl<S: Entry> Panel<S> {
         let content_viewport = viewport.translate(Vec2::new(0.0, rect.min.y - min_y));
 
         slot.content(ui, content_subrect, content_viewport, config, cx);
-        slot.label(ui, label_subrect);
+        slot.label(ui, label_subrect, cx);
 
         false
     }
@@ -1486,6 +1488,8 @@ impl ProfApp {
 
         result.windows.clear();
 
+        result.cx.scale_factor = 1.0;
+
         #[cfg(not(target_arch = "wasm32"))]
         {
             result.last_update = Some(Instant::now());
@@ -1553,6 +1557,14 @@ impl ProfApp {
         );
     }
 
+    fn multiply_scale_factor(cx: &mut Context, factor: f32) {
+        cx.scale_factor = (cx.scale_factor * factor).min(4.0).max(0.25);
+    }
+
+    fn reset_scale_factor(cx: &mut Context) {
+        cx.scale_factor = 1.0;
+    }
+
     fn keyboard(ctx: &egui::Context, cx: &mut Context) {
         // Focus is elsewhere, don't check any keys
         if ctx.memory(|m| m.focus().is_some()) {
@@ -1560,26 +1572,39 @@ impl ProfApp {
         }
 
         enum Actions {
-            ZoomIn,
-            ZoomOut,
-            UndoZoom,
-            RedoZoom,
-            ResetZoom,
+            ZoomInX,
+            ZoomOutX,
+            UndoZoomX,
+            RedoZoomX,
+            ResetZoomX,
+            ZoomInY,
+            ZoomOutY,
+            ResetZoomY,
             ToggleControls,
             NoAction,
         }
         let action = ctx.input(|i| {
             if i.modifiers.ctrl {
-                if i.key_pressed(egui::Key::PlusEquals) {
-                    Actions::ZoomIn
+                if i.modifiers.alt {
+                    if i.key_pressed(egui::Key::PlusEquals) {
+                        Actions::ZoomInY
+                    } else if i.key_pressed(egui::Key::Minus) {
+                        Actions::ZoomOutY
+                    } else if i.key_pressed(egui::Key::Num0) {
+                        Actions::ResetZoomY
+                    } else {
+                        Actions::NoAction
+                    }
+                } else if i.key_pressed(egui::Key::PlusEquals) {
+                    Actions::ZoomInX
                 } else if i.key_pressed(egui::Key::Minus) {
-                    Actions::ZoomOut
+                    Actions::ZoomOutX
                 } else if i.key_pressed(egui::Key::ArrowLeft) {
-                    Actions::UndoZoom
+                    Actions::UndoZoomX
                 } else if i.key_pressed(egui::Key::ArrowRight) {
-                    Actions::RedoZoom
+                    Actions::RedoZoomX
                 } else if i.key_pressed(egui::Key::Num0) {
-                    Actions::ResetZoom
+                    Actions::ResetZoomX
                 } else {
                     Actions::NoAction
                 }
@@ -1590,11 +1615,14 @@ impl ProfApp {
             }
         });
         match action {
-            Actions::ZoomIn => ProfApp::zoom_in(cx),
-            Actions::ZoomOut => ProfApp::zoom_out(cx),
-            Actions::UndoZoom => ProfApp::undo_zoom(cx),
-            Actions::RedoZoom => ProfApp::redo_zoom(cx),
-            Actions::ResetZoom => ProfApp::zoom(cx, cx.total_interval),
+            Actions::ZoomInX => ProfApp::zoom_in(cx),
+            Actions::ZoomOutX => ProfApp::zoom_out(cx),
+            Actions::UndoZoomX => ProfApp::undo_zoom(cx),
+            Actions::RedoZoomX => ProfApp::redo_zoom(cx),
+            Actions::ResetZoomX => ProfApp::zoom(cx, cx.total_interval),
+            Actions::ZoomInY => ProfApp::multiply_scale_factor(cx, 2.0),
+            Actions::ZoomOutY => ProfApp::multiply_scale_factor(cx, 0.5),
+            Actions::ResetZoomY => ProfApp::reset_scale_factor(cx),
             Actions::ToggleControls => cx.show_controls = !cx.show_controls,
             Actions::NoAction => {}
         }
@@ -1739,12 +1767,15 @@ impl ProfApp {
                         });
                     });
                 };
-                show_row("Zoom to Interval", "Click and Drag");
-                show_row("Zoom In", "Ctrl + Plus/Equals");
-                show_row("Zoom Out", "Ctrl + Minus");
-                show_row("Undo Zoom", "Ctrl + Left Arrow");
-                show_row("Redo Zoom", "Ctrl + Right Arrow");
-                show_row("Reset Zoom", "Ctrl + 0");
+                show_row("Zoom to Interval (X)", "Click and Drag");
+                show_row("Zoom In (X)", "Ctrl + Plus/Equals");
+                show_row("Zoom Out (X)", "Ctrl + Minus");
+                show_row("Undo Zoom (X)", "Ctrl + Left Arrow");
+                show_row("Redo Zoom (X)", "Ctrl + Right Arrow");
+                show_row("Reset Zoom (X)", "Ctrl + 0");
+                show_row("Zoom In (Y)", "Ctrl + Alt + Plus/Equals");
+                show_row("Zoom Out (Y)", "Ctrl + Alt + Minus");
+                show_row("Reset Zoom (Y)", "Ctrl + Alt + 0");
                 show_row("Toggle This Window", "H");
             });
     }
@@ -1932,7 +1963,7 @@ impl eframe::App for ProfApp {
             let font_id = TextStyle::Body.resolve(ui.style());
             let row_height = ui.fonts(|f| f.row_height(&font_id));
             // Just set this on every frame for now
-            cx.row_height = row_height;
+            cx.row_height = row_height * cx.scale_factor;
 
             let mut remaining = windows.len();
             // Only wrap in a frame if more than one profile

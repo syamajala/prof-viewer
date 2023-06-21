@@ -18,10 +18,10 @@
 - [x] Render data in tiles
 - [x] Long-running tasks that cross tile boundary
 - [x] Asynchronous data fetch
+- [x] Vertical zoom
+- [x] Search (with load all data option to get better search results)
+- [x] Open window to show key bindings
 - [ ] Horizontal pan (including drag, keyboard, horizontal scroll wheel)
-- [ ] Vertical zoom
-- [ ] Search (with load all data option to get better search results)
 - [ ] Task detail view
 - [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse)
-- [ ] Open window to show key bindings
 - [ ] Editable key bindings?
