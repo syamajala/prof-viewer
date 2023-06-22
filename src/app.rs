@@ -119,7 +119,7 @@ struct Config {
 
     // Kind selection
     kinds: Vec<String>,
-    kind_filter: BTreeMap<String, bool>,
+    kind_filter: BTreeSet<String>,
 
     // This is just for the local profile
     interval: Interval,
@@ -850,7 +850,7 @@ impl<S: Entry> Panel<S> {
         } else if level == 2 {
             // Apply kind filter.
             let kind = slot.label_text();
-            config.kind_filter.get(kind).copied().unwrap_or(true)
+            config.kind_filter.is_empty() || config.kind_filter.contains(kind)
         } else {
             true
         }
@@ -1153,13 +1153,11 @@ impl Config {
         let interval = info.interval;
         let tile_set = info.tile_set;
 
-        let kind_filter = kinds.iter().map(|k| (k.clone(), true)).collect();
-
         Self {
             min_node: 0,
             max_node,
             kinds,
-            kind_filter,
+            kind_filter: BTreeSet::new(),
             interval,
             tile_set,
             data_source: CountingDeferredDataSource::new(data_source),
@@ -1275,8 +1273,16 @@ impl Window {
         ui.subheading("Filter by Kind", cx);
         ui.horizontal_wrapped(|ui| {
             for kind in &self.config.kinds {
-                let enabled = self.config.kind_filter.get_mut(kind).unwrap();
-                ui.toggle_value(enabled, kind);
+                let initial = self.config.kind_filter.contains(kind);
+                let mut enabled = initial;
+                ui.toggle_value(&mut enabled, kind);
+                if initial != enabled {
+                    if enabled {
+                        self.config.kind_filter.insert(kind.clone());
+                    } else {
+                        self.config.kind_filter.remove(kind);
+                    }
+                }
             }
         });
     }
