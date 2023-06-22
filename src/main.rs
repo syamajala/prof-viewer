@@ -3,10 +3,10 @@
 
 use egui::{Color32, NumExt};
 use rand::Rng;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use legion_prof_viewer::data::{
-    DataSourceInfo, DataSourceMut, EntryID, EntryInfo, Field, Item, ItemMeta, ItemUID,
+    DataSourceInfo, DataSourceMut, EntryID, EntryInfo, Field, FieldSchema, Item, ItemMeta, ItemUID,
     SlotMetaTile, SlotMetaTileData, SlotTile, SlotTileData, SummaryTile, SummaryTileData, TileID,
     TileSet, UtilPoint,
 };
@@ -261,6 +261,9 @@ impl DataSourceMut for RandomDataSource {
             entry_info: self.entry_info().clone(),
             interval: self.interval(),
             tile_set: TileSet::default(),
+            field_schema: FieldSchema {
+                fields: BTreeSet::from(["Item UID".to_owned(), "Interval".to_owned()]),
+            },
         }
     }
 

@@ -23,6 +23,7 @@ pub struct DataSourceInfo {
     pub entry_info: EntryInfo,
     pub interval: Interval,
     pub tile_set: TileSet,
+    pub field_schema: FieldSchema,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -59,6 +60,13 @@ pub struct ItemLink {
     // Required to enable zoom/scroll-to-item
     pub interval: Interval,
     pub entry_id: EntryID,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FieldSchema {
+    // The list of field names that may potentially exist on a given
+    // item. They are not necessarily all present on any given item
+    pub fields: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

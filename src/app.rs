@@ -11,8 +11,8 @@ use egui_extras::{Column, TableBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
-    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, ItemLink, ItemMeta, ItemUID,
-    SlotMetaTileData, SlotTileData, SummaryTileData, TileID, TileSet, UtilPoint,
+    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, FieldSchema, ItemLink, ItemMeta,
+    ItemUID, SlotMetaTileData, SlotTileData, SummaryTileData, TileID, TileSet, UtilPoint,
 };
 use crate::deferred_data::{CountingDeferredDataSource, DeferredDataSource};
 use crate::timestamp::{Interval, Timestamp, TimestampParseError};
@@ -76,6 +76,13 @@ struct Panel<S: Entry> {
     slots: Vec<S>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct FieldID(usize);
+
+struct FieldSchemaMap {
+    fields: BTreeMap<FieldID, String>,
+}
+
 #[derive(Clone)]
 struct ItemLocator {
     // For vertical scroll, we need the item's entry ID and row index
@@ -98,13 +105,16 @@ struct SearchCacheItem {
     irow: usize,
 }
 
-#[derive(Default)]
 struct SearchState {
+    field_schema: FieldSchemaMap,
+
     // Search parameters
     query: String,
     last_query: String,
     include_collapsed_entries: bool,
     last_include_collapsed_entries: bool,
+    search_field: FieldID,
+    last_search_field: FieldID,
     last_view_interval: Option<Interval>,
 
     // Cache of matching items
@@ -1060,6 +1070,41 @@ impl<S: Entry> Entry for Panel<S> {
 }
 
 impl SearchState {
+    fn new(schema: FieldSchema) -> Self {
+        let mut fields = schema.fields;
+        fields.insert("Title".to_owned());
+
+        let fields = fields
+            .into_iter()
+            .enumerate()
+            .map(|(i, v)| (FieldID(i), v))
+            .collect();
+        let schema_map = FieldSchemaMap { fields };
+
+        let title = *schema_map
+            .fields
+            .iter()
+            .find(|(_, v)| v.as_str() == "Title")
+            .unwrap()
+            .0;
+
+        Self {
+            field_schema: schema_map,
+
+            query: "".to_owned(),
+            last_query: "".to_owned(),
+            include_collapsed_entries: false,
+            last_include_collapsed_entries: false,
+            search_field: title,
+            last_search_field: title,
+            last_view_interval: None,
+
+            result_set: BTreeSet::new(),
+            result_cache: BTreeMap::new(),
+            entry_tree: BTreeMap::new(),
+        }
+    }
+
     fn clear(&mut self) {
         self.result_set.clear();
         self.result_cache.clear();
@@ -1073,6 +1118,12 @@ impl SearchState {
         if self.query != self.last_query {
             invalidate = true;
             self.last_query = self.query.clone();
+        }
+
+        // Invalidate when the search field changes.
+        if self.search_field != self.last_search_field {
+            invalidate = true;
+            self.last_search_field = self.search_field;
         }
 
         // Invalidate when EXCLUDING collapsed entries. (I.e., because the
@@ -1187,6 +1238,7 @@ impl Config {
         let kinds = info.entry_info.kinds();
         let interval = info.interval;
         let tile_set = info.tile_set;
+        let search_state = SearchState::new(info.field_schema);
 
         Self {
             min_node: 0,
@@ -1196,7 +1248,7 @@ impl Config {
             interval,
             tile_set,
             data_source: CountingDeferredDataSource::new(data_source),
-            search_state: SearchState::default(),
+            search_state,
             items_selected: BTreeMap::new(),
             scroll_to_item: None,
             scroll_to_item_uid: None,
@@ -1477,10 +1529,23 @@ impl Window {
                 self.config.search_state.query.clear();
             }
         });
+        ui.horizontal(|ui| {
+            ui.label("Search field:");
+            let fields = &self.config.search_state.field_schema.fields;
+            let search_field = &mut self.config.search_state.search_field;
+            egui::ComboBox::from_id_source("Search field")
+                .selected_text(fields.get(search_field).unwrap())
+                .show_ui(ui, |ui| {
+                    for (field, name) in fields {
+                        ui.selectable_value(search_field, *field, name);
+                    }
+                });
+        });
         ui.checkbox(
             &mut self.config.search_state.include_collapsed_entries,
             "Include collapsed processors",
         );
+
         self.search(cx);
     }
 
