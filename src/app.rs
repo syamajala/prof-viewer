@@ -602,11 +602,15 @@ impl Slot {
 
                 let mut color = item.color;
                 if !config.search_state.query.is_empty() {
-                    if config.search_state.result_set.contains(&item.item_uid) {
+                    if config.search_state.result_set.contains(&item.item_uid)
+                        || config.items_selected.contains_key(&item.item_uid)
+                    {
                         color = Color32::RED;
                     } else {
                         color = color.gamma_multiply(0.2);
                     }
+                } else if config.items_selected.contains_key(&item.item_uid) {
+                    color = Color32::RED;
                 }
 
                 ui.painter().rect(item_rect, 0.0, color, Stroke::NONE);
