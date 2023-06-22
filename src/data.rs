@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 
 pub use egui::{Color32, Rgba};
@@ -62,11 +63,65 @@ pub struct ItemLink {
     pub entry_id: EntryID,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+pub struct FieldID(usize);
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FieldSchema {
-    // The list of field names that may potentially exist on a given
-    // item. They are not necessarily all present on any given item
-    pub fields: BTreeSet<String>,
+    // Field names that may potentially exist on a given item. They are not
+    // necessarily all present on any given item
+    field_ids: BTreeMap<String, FieldID>,
+    field_names: BTreeMap<FieldID, String>,
+    searchable: BTreeSet<FieldID>,
+}
+
+impl FieldSchema {
+    pub fn new() -> Self {
+        Self {
+            field_ids: BTreeMap::new(),
+            field_names: BTreeMap::new(),
+            searchable: BTreeSet::new(),
+        }
+    }
+
+    pub fn insert(&mut self, field_name: String, searchable: bool) -> FieldID {
+        if let Some(field_id) = self.field_ids.get(&field_name) {
+            return *field_id;
+        }
+
+        let next_id = FieldID(
+            self.field_names
+                .last_key_value()
+                .map(|(v, _)| v.0 + 1)
+                .unwrap_or(0),
+        );
+        self.field_ids.insert(field_name.clone(), next_id);
+        self.field_names.insert(next_id, field_name);
+        if searchable {
+            self.searchable.insert(next_id);
+        }
+        next_id
+    }
+
+    pub fn get_id(&self, field_name: &str) -> Option<FieldID> {
+        self.field_ids.get(field_name).copied()
+    }
+
+    pub fn get_name(&self, field_id: FieldID) -> Option<&str> {
+        self.field_names.get(&field_id).map(|x| x.as_str())
+    }
+
+    pub fn contains_id(&self, field_id: FieldID) -> bool {
+        self.field_names.contains_key(&field_id)
+    }
+
+    pub fn contains_name(&self, field_name: &str) -> bool {
+        self.field_ids.contains_key(field_name)
+    }
+
+    pub fn searchable(&self) -> &BTreeSet<FieldID> {
+        &self.searchable
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -97,7 +152,7 @@ pub struct ItemMeta {
     // entire duration of the original item, unexpanded and unsliced.
     pub original_interval: Interval,
     pub title: String,
-    pub fields: Vec<(String, Field)>,
+    pub fields: Vec<(FieldID, Field)>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]

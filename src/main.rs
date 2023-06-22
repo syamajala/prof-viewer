@@ -3,12 +3,12 @@
 
 use egui::{Color32, NumExt};
 use rand::Rng;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use legion_prof_viewer::data::{
-    DataSourceInfo, DataSourceMut, EntryID, EntryInfo, Field, FieldSchema, Item, ItemMeta, ItemUID,
-    SlotMetaTile, SlotMetaTileData, SlotTile, SlotTileData, SummaryTile, SummaryTileData, TileID,
-    TileSet, UtilPoint,
+    DataSourceInfo, DataSourceMut, EntryID, EntryInfo, Field, FieldID, FieldSchema, Item, ItemMeta,
+    ItemUID, SlotMetaTile, SlotMetaTileData, SlotTile, SlotTileData, SummaryTile, SummaryTileData,
+    TileID, TileSet, UtilPoint,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -26,7 +26,7 @@ const DEFAULT_URL: &str = "http://127.0.0.1:8080";
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     legion_prof_viewer::app::start(vec![Box::new(DeferredDataSourceWrapper::new(
-        RandomDataSource::default(),
+        RandomDataSource::new(),
     ))]);
 }
 
@@ -69,10 +69,10 @@ impl ItemUIDGenerator {
     }
 }
 
-#[derive(Default)]
 struct RandomDataSource {
-    info: Option<EntryInfo>,
-    interval: Option<Interval>,
+    info: DataSourceInfo,
+    item_uid_field: FieldID,
+    interval_field: FieldID,
     summary_cache: BTreeMap<EntryID, Vec<UtilPoint>>,
     slot_cache: BTreeMap<EntryID, SlotCacheTile>,
     rng: rand::rngs::ThreadRng,
@@ -80,16 +80,33 @@ struct RandomDataSource {
 }
 
 impl RandomDataSource {
-    fn interval(&mut self) -> Interval {
-        if let Some(interval) = self.interval {
-            return interval;
+    fn new() -> Self {
+        let mut rng = rand::rngs::ThreadRng::default();
+        let entry_info = Self::entry_info(&mut rng);
+        let mut field_schema = FieldSchema::new();
+        let item_uid_field = field_schema.insert("Item UID".to_owned(), false);
+        let interval_field = field_schema.insert("Interval".to_owned(), false);
+
+        let info = DataSourceInfo {
+            entry_info,
+            interval: Self::interval(&mut rng),
+            tile_set: TileSet::default(),
+            field_schema,
+        };
+
+        Self {
+            info,
+            item_uid_field,
+            interval_field,
+            summary_cache: BTreeMap::new(),
+            slot_cache: BTreeMap::new(),
+            rng,
+            item_uid_generator: ItemUIDGenerator::default(),
         }
-        let interval = Interval::new(
-            Timestamp(0),
-            Timestamp(self.rng.gen_range(1_000_000..2_000_000)),
-        );
-        self.interval = Some(interval);
-        interval
+    }
+
+    fn interval(rng: &mut rand::rngs::ThreadRng) -> Interval {
+        Interval::new(Timestamp(0), Timestamp(rng.gen_range(1_000_000..2_000_000)))
     }
 
     fn generate_point(
@@ -118,11 +135,11 @@ impl RandomDataSource {
         if !self.summary_cache.contains_key(entry_id) {
             const LEVELS: i32 = 8;
             let first = UtilPoint {
-                time: self.interval().start,
+                time: self.info.interval.start,
                 util: self.rng.gen(),
             };
             let last = UtilPoint {
-                time: self.interval().stop,
+                time: self.info.interval.stop,
                 util: self.rng.gen(),
             };
             let mut utilization = Vec::new();
@@ -137,7 +154,7 @@ impl RandomDataSource {
 
     fn generate_slot(&mut self, entry_id: &EntryID) -> &SlotCacheTile {
         if !self.slot_cache.contains_key(entry_id) {
-            let entry = self.entry_info().get(entry_id);
+            let entry = self.info.entry_info.get(entry_id);
 
             let max_rows = if let EntryInfo::Slot { max_rows, .. } = entry.unwrap() {
                 max_rows
@@ -152,8 +169,8 @@ impl RandomDataSource {
                 let mut row_item_metas = Vec::new();
                 const N: u64 = 1000;
                 for i in 0..N {
-                    let start = self.interval().lerp((i as f32 + 0.05) / (N as f32));
-                    let stop = self.interval().lerp((i as f32 + 0.95) / (N as f32));
+                    let start = self.info.interval.lerp((i as f32 + 0.05) / (N as f32));
+                    let stop = self.info.interval.lerp((i as f32 + 0.95) / (N as f32));
 
                     let color = match (row * N + i) % 7 {
                         0 => Color32::BLUE,
@@ -178,10 +195,10 @@ impl RandomDataSource {
                         title: "Test Item".to_owned(),
                         fields: vec![
                             (
-                                "Interval".to_owned(),
+                                self.interval_field,
                                 Field::Interval(Interval::new(start, stop)),
                             ),
-                            ("Item UID".to_owned(), Field::U64(item_uid.0)),
+                            (self.item_uid_field, Field::U64(item_uid.0)),
                         ],
                     });
                 }
@@ -195,11 +212,7 @@ impl RandomDataSource {
         self.slot_cache.get(entry_id).unwrap()
     }
 
-    fn entry_info(&mut self) -> &EntryInfo {
-        if let Some(ref info) = self.info {
-            return info;
-        }
-
+    fn entry_info(rng: &mut rand::rngs::ThreadRng) -> EntryInfo {
         let kinds = vec![
             "CPU".to_string(),
             "GPU".to_string(),
@@ -220,7 +233,7 @@ impl RandomDataSource {
                 let color = colors[i % colors.len()];
                 let mut proc_slots = Vec::new();
                 for proc in 0..PROCS {
-                    let rows: u64 = self.rng.gen_range(0..64);
+                    let rows: u64 = rng.gen_range(0..64);
                     proc_slots.push(EntryInfo::Slot {
                         short_name: format!(
                             "{}{}",
@@ -245,26 +258,18 @@ impl RandomDataSource {
                 slots: kind_slots,
             });
         }
-        self.info = Some(EntryInfo::Panel {
+        EntryInfo::Panel {
             short_name: "root".to_owned(),
             long_name: "root".to_owned(),
             summary: None,
             slots: node_slots,
-        });
-        self.info.as_ref().unwrap()
+        }
     }
 }
 
 impl DataSourceMut for RandomDataSource {
     fn fetch_info(&mut self) -> DataSourceInfo {
-        DataSourceInfo {
-            entry_info: self.entry_info().clone(),
-            interval: self.interval(),
-            tile_set: TileSet::default(),
-            field_schema: FieldSchema {
-                fields: BTreeSet::from(["Item UID".to_owned(), "Interval".to_owned()]),
-            },
-        }
+        self.info.clone()
     }
 
     fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SummaryTile {

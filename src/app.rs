@@ -11,8 +11,8 @@ use egui_extras::{Column, TableBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
-    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, FieldSchema, ItemLink, ItemMeta,
-    ItemUID, SlotMetaTileData, SlotTileData, SummaryTileData, TileID, TileSet, UtilPoint,
+    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, FieldID, FieldSchema, ItemLink,
+    ItemMeta, ItemUID, SlotMetaTileData, SlotTileData, SummaryTileData, TileID, TileSet, UtilPoint,
 };
 use crate::deferred_data::{CountingDeferredDataSource, DeferredDataSource};
 use crate::timestamp::{Interval, Timestamp, TimestampParseError};
@@ -76,14 +76,6 @@ struct Panel<S: Entry> {
     slots: Vec<S>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct FieldID(usize);
-
-struct FieldSchemaMap {
-    fields: BTreeMap<FieldID, String>,
-    title_field: FieldID,
-}
-
 #[derive(Clone)]
 struct ItemLocator {
     // For vertical scroll, we need the item's entry ID and row index
@@ -107,7 +99,7 @@ struct SearchCacheItem {
 }
 
 struct SearchState {
-    field_schema: FieldSchemaMap,
+    title_field: FieldID,
 
     // Search parameters
     query: String,
@@ -125,6 +117,8 @@ struct SearchState {
 }
 
 struct Config {
+    field_schema: FieldSchema,
+
     // Node selection
     min_node: u64,
     max_node: u64,
@@ -651,7 +645,8 @@ impl Slot {
                     if cx.debug {
                         ui.label(format!("Item UID: {}", item_meta.item_uid.0));
                     }
-                    for (name, field) in &item_meta.fields {
+                    for (field_id, field) in &item_meta.fields {
+                        let name = config.field_schema.get_name(*field_id).unwrap();
                         match field {
                             Field::I64(value) => {
                                 ui.label(format!("{name}: {value}"));
@@ -1071,36 +1066,16 @@ impl<S: Entry> Entry for Panel<S> {
 }
 
 impl SearchState {
-    fn new(schema: FieldSchema) -> Self {
-        let mut fields = schema.fields;
-        fields.insert("Title".to_owned());
-
-        let fields: BTreeMap<_, _> = fields
-            .into_iter()
-            .enumerate()
-            .map(|(i, v)| (FieldID(i), v))
-            .collect();
-
-        let title = *fields
-            .iter()
-            .find(|(_, v)| v.as_str() == "Title")
-            .unwrap()
-            .0;
-
-        let schema_map = FieldSchemaMap {
-            fields,
-            title_field: title,
-        };
-
+    fn new(title_id: FieldID) -> Self {
         Self {
-            field_schema: schema_map,
+            title_field: title_id,
 
             query: "".to_owned(),
             last_query: "".to_owned(),
             include_collapsed_entries: false,
             last_include_collapsed_entries: false,
-            search_field: title,
-            last_search_field: title,
+            search_field: title_id,
+            last_search_field: title_id,
             last_view_interval: None,
 
             result_set: BTreeSet::new(),
@@ -1151,11 +1126,11 @@ impl SearchState {
     }
 
     fn is_match(&self, item: &ItemMeta) -> bool {
-        if self.search_field == self.field_schema.title_field {
+        let field = self.search_field;
+        if field == self.title_field {
             item.title.contains(&self.query)
         } else {
-            let field = self.field_schema.fields.get(&self.search_field).unwrap();
-            if let Some((_, value)) = item.fields.iter().find(|(x, _)| x == field) {
+            if let Some((_, value)) = item.fields.iter().find(|(x, _)| *x == field) {
                 match value {
                     Field::String(s) => s.contains(&self.query),
                     Field::ItemLink(ItemLink { title, .. }) => title.contains(&self.query),
@@ -1255,9 +1230,14 @@ impl Config {
         let kinds = info.entry_info.kinds();
         let interval = info.interval;
         let tile_set = info.tile_set;
-        let search_state = SearchState::new(info.field_schema);
+
+        let mut field_schema = info.field_schema;
+        assert!(!field_schema.contains_name("Title"));
+        let title_id = field_schema.insert("Title".to_owned(), true);
+        let search_state = SearchState::new(title_id);
 
         Self {
+            field_schema,
             min_node: 0,
             max_node,
             kinds,
@@ -1548,12 +1528,13 @@ impl Window {
         });
         ui.horizontal(|ui| {
             ui.label("Search field:");
-            let fields = &self.config.search_state.field_schema.fields;
+            let schema = &self.config.field_schema;
             let search_field = &mut self.config.search_state.search_field;
             egui::ComboBox::from_id_source("Search field")
-                .selected_text(fields.get(search_field).unwrap())
+                .selected_text(schema.get_name(*search_field).unwrap())
                 .show_ui(ui, |ui| {
-                    for (field, name) in fields {
+                    for field in schema.searchable() {
+                        let name = schema.get_name(*field).unwrap();
                         ui.selectable_value(search_field, *field, name);
                     }
                 });
@@ -1963,6 +1944,7 @@ impl ProfApp {
         ui: &mut egui::Ui,
         item_meta: &ItemMeta,
         item_loc: &ItemLocator,
+        field_schema: &FieldSchema,
         cx: &Context,
     ) -> Option<(ItemUID, ItemLocator, Interval)> {
         let mut result: Option<(ItemUID, ItemLocator, Interval)> = None;
@@ -2014,7 +1996,8 @@ impl ProfApp {
                 if cx.debug {
                     show_row("Item UID", &format!("{}", item_meta.item_uid.0), None);
                 }
-                for (name, field) in &item_meta.fields {
+                for (field_id, field) in &item_meta.fields {
+                    let name = field_schema.get_name(*field_id).unwrap();
                     match field {
                         Field::I64(value) => {
                             show_row(name, &format!("{value}"), None);
@@ -2269,7 +2252,13 @@ impl eframe::App for ProfApp {
                         .open(&mut enabled)
                         .resizable(true)
                         .show(ctx, |ui| {
-                            let target = Self::display_task_details(ui, item_meta, item_loc, cx);
+                            let target = Self::display_task_details(
+                                ui,
+                                item_meta,
+                                item_loc,
+                                &window.config.field_schema,
+                                cx,
+                            );
                             if target.is_some() {
                                 zoom_target = target;
                             }
