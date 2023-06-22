@@ -124,6 +124,12 @@ impl FieldSchema {
     }
 }
 
+impl Default for FieldSchema {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Field {
     I64(i64),

@@ -1129,16 +1129,14 @@ impl SearchState {
         let field = self.search_field;
         if field == self.title_field {
             item.title.contains(&self.query)
-        } else {
-            if let Some((_, value)) = item.fields.iter().find(|(x, _)| *x == field) {
-                match value {
-                    Field::String(s) => s.contains(&self.query),
-                    Field::ItemLink(ItemLink { title, .. }) => title.contains(&self.query),
-                    _ => false,
-                }
-            } else {
-                false
+        } else if let Some((_, value)) = item.fields.iter().find(|(x, _)| *x == field) {
+            match value {
+                Field::String(s) => s.contains(&self.query),
+                Field::ItemLink(ItemLink { title, .. }) => title.contains(&self.query),
+                _ => false,
             }
+        } else {
+            false
         }
     }
 
