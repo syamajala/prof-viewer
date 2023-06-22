@@ -50,11 +50,24 @@ pub struct UtilPoint {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ItemLink {
+    pub item_uid: ItemUID,
+
+    // Text to display for the item
+    pub title: String,
+
+    // Required to enable zoom/scroll-to-item
+    pub interval: Interval,
+    pub entry_id: EntryID,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Field {
     I64(i64),
     U64(u64),
     String(String),
     Interval(Interval),
+    ItemLink(ItemLink),
     Empty,
 }
 

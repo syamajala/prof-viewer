@@ -11,8 +11,8 @@ use egui_extras::{Column, TableBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
-    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, ItemMeta, ItemUID, SlotMetaTileData,
-    SlotTileData, SummaryTileData, TileID, TileSet, UtilPoint,
+    DataSourceInfo, EntryID, EntryIndex, EntryInfo, Field, ItemLink, ItemMeta, ItemUID,
+    SlotMetaTileData, SlotTileData, SummaryTileData, TileID, TileSet, UtilPoint,
 };
 use crate::deferred_data::{CountingDeferredDataSource, DeferredDataSource};
 use crate::timestamp::{Interval, Timestamp, TimestampParseError};
@@ -76,14 +76,14 @@ struct Panel<S: Entry> {
     slots: Vec<S>,
 }
 
+#[derive(Clone)]
 struct ItemLocator {
     // For vertical scroll, we need the item's entry ID and row index
     // (note: reversed, because we're in screen space)
     entry_id: EntryID,
-    irow: usize,
+    irow: Option<usize>,
 }
 
-#[derive(Debug)]
 struct SearchCacheItem {
     // Cache fields for display
     title: String,
@@ -253,6 +253,8 @@ trait Entry {
     fn find_slot(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot>;
     fn find_summary(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary>;
 
+    fn expand_slot(&mut self, entry_id: &EntryID, level: u64);
+
     fn inflate_meta(&mut self, config: &mut Config, cx: &mut Context);
 
     fn search(&mut self, config: &mut Config);
@@ -356,6 +358,10 @@ impl Entry for Summary {
         assert_eq!(entry_id.level(), level);
         assert_eq!(entry_id.index(level - 1)?, EntryIndex::Summary);
         Some(self)
+    }
+
+    fn expand_slot(&mut self, _entry_id: &EntryID, _level: u64) {
+        unreachable!()
     }
 
     fn inflate_meta(&mut self, _config: &mut Config, _cx: &mut Context) {
@@ -641,6 +647,9 @@ impl Slot {
                             Field::Interval(value) => {
                                 ui.label(format!("{name}: {value}"));
                             }
+                            Field::ItemLink(ItemLink { title, .. }) => {
+                                ui.label(format!("{name}: {title}"));
+                            }
                             Field::Empty => {
                                 ui.label(name);
                             }
@@ -655,7 +664,7 @@ impl Slot {
                     // properties hold (e.g., the button was held less than
                     // some duration, and it moved less than some amount).
                     if i.pointer.any_click() && i.pointer.primary_released() {
-                        let irow = rows as usize - row - 1;
+                        let irow = Some(rows as usize - row - 1);
                         config.items_selected.insert(
                             item_meta.item_uid,
                             (item_meta.clone(), ItemLocator { entry_id, irow }),
@@ -711,6 +720,12 @@ impl Entry for Slot {
 
     fn find_summary(&mut self, _entry_id: &EntryID, _level: u64) -> Option<&mut Summary> {
         unreachable!()
+    }
+
+    fn expand_slot(&mut self, entry_id: &EntryID, level: u64) {
+        assert_eq!(entry_id.level(), level);
+        assert!(entry_id.slot_index(level - 1).is_some());
+        self.expanded = true;
     }
 
     fn inflate_meta(&mut self, config: &mut Config, cx: &mut Context) {
@@ -916,6 +931,14 @@ impl<S: Entry> Entry for Panel<S> {
         } else {
             self.summary.as_mut()?.find_summary(entry_id, level + 1)
         }
+    }
+
+    fn expand_slot(&mut self, entry_id: &EntryID, level: u64) {
+        self.slots
+            .get_mut(entry_id.slot_index(level).unwrap() as usize)
+            .unwrap()
+            .expand_slot(entry_id, level + 1);
+        self.expanded = true;
     }
 
     fn inflate_meta(&mut self, config: &mut Config, cx: &mut Context) {
@@ -1227,6 +1250,10 @@ impl Window {
         self.panel.find_summary(entry_id, 0)
     }
 
+    fn expand_slot(&mut self, entry_id: &EntryID) {
+        self.panel.expand_slot(entry_id, 0);
+    }
+
     fn content(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
         ui.horizontal(|ui| {
             ui.heading(format!("Profile {}", self.index));
@@ -1245,6 +1272,7 @@ impl Window {
                 if let Some(ItemLocator { ref entry_id, irow }) =
                     self.config.search_state.item_select
                 {
+                    let irow = irow.unwrap_or(0); // FIXME (Elliott): zoom to middle of entry
                     let prefix_height = self.panel.height(Some(entry_id), &self.config, cx);
                     let mut item_rect =
                         rect.translate(Vec2::new(0.0, prefix_height + irow as f32 * cx.row_height));
@@ -1503,7 +1531,7 @@ impl Window {
                                                     self.config.search_state.item_select =
                                                         Some(ItemLocator {
                                                             entry_id: level2_slot.entry_id.clone(),
-                                                            irow: item.irow,
+                                                            irow: Some(item.irow),
                                                         });
                                                     level2_slot.expanded = true;
                                                     level1_slot.expanded = true;
@@ -1839,62 +1867,102 @@ impl ProfApp {
             });
     }
 
-    fn display_task_details(ui: &mut egui::Ui, item_meta: &ItemMeta, cx: &Context) -> bool {
+    fn display_task_details(
+        ui: &mut egui::Ui,
+        item_meta: &ItemMeta,
+        item_loc: &ItemLocator,
+        cx: &Context,
+    ) -> Option<(ItemLocator, Interval)> {
+        let mut result: Option<(ItemLocator, Interval)> = None;
         TableBuilder::new(ui)
             .striped(true)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .column(Column::auto())
             .column(Column::remainder())
             .body(|mut body| {
-                let mut show_row = |a: &str, b: String| {
+                let mut show_row = |k: &str, v: &str, b: Option<&str>| -> bool {
                     // We need to manually work out the height of the labels
                     // so that the table knows how large to make each row.
                     let width = body.widths()[1];
+
+                    // Hack: if we have button text, guess how much space it
+                    // will need by extending the string.
+                    let mut vb = v.to_string();
+                    if let Some(b) = b {
+                        vb.push(' ');
+                        vb.push_str(b);
+                    }
 
                     let ui = body.ui_mut();
                     let style = ui.style();
                     let font_id = TextStyle::Body.resolve(style);
                     let visuals = style.noninteractive();
-                    let layout = ui.painter().layout(b, font_id, visuals.text_color(), width);
-                    let height = 18.0 * layout.rows.len() as f32;
+                    let layout = ui
+                        .painter()
+                        .layout(vb, font_id, visuals.text_color(), width);
 
+                    let rows = layout.rows.len();
+                    let height = 18.0 * rows as f32;
+
+                    let mut result = false;
                     body.row(height, |mut row| {
                         row.col(|ui| {
-                            ui.strong(a);
+                            ui.strong(k);
                         });
                         row.col(|ui| {
-                            ui.add(egui::Label::new(layout.text()).wrap(true));
+                            ui.add(egui::Label::new(v).wrap(true));
+                            if let Some(b) = b {
+                                result = ui.button(b).clicked();
+                            }
                         });
                     });
+                    result
                 };
 
-                show_row("Title", item_meta.title.clone());
+                show_row("Title", &item_meta.title, None);
                 if cx.debug {
-                    show_row("Item UID", format!("{}", item_meta.item_uid.0));
+                    show_row("Item UID", &format!("{}", item_meta.item_uid.0), None);
                 }
                 for (name, field) in &item_meta.fields {
                     match field {
                         Field::I64(value) => {
-                            show_row(name, format!("{value}"));
+                            show_row(name, &format!("{value}"), None);
                         }
                         Field::U64(value) => {
-                            show_row(name, format!("{value}"));
+                            show_row(name, &format!("{value}"), None);
                         }
                         Field::String(value) => {
-                            show_row(name, value.clone());
+                            show_row(name, value, None);
                         }
                         Field::Interval(value) => {
-                            show_row(name, format!("{value}"));
+                            show_row(name, &format!("{value}"), None);
+                        }
+                        Field::ItemLink(ItemLink {
+                            title,
+                            interval,
+                            entry_id,
+                            ..
+                        }) => {
+                            if show_row(name, title, Some("Zoom to Item")) {
+                                result = Some((
+                                    ItemLocator {
+                                        entry_id: entry_id.clone(),
+                                        irow: None,
+                                    },
+                                    *interval,
+                                ));
+                            }
                         }
                         Field::Empty => {
-                            show_row(name, "".to_owned());
+                            show_row(name, "", None);
                         }
                     }
                 }
             });
-        let mut result = false;
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            result = ui.button("Zoom to Interval").clicked();
+            if ui.button("Zoom to Item").clicked() {
+                result = Some((item_loc.clone(), item_meta.original_interval));
+            }
         });
         result
     }
@@ -2094,8 +2162,10 @@ impl eframe::App for ProfApp {
 
         for window in windows.iter_mut() {
             let mut zoom_target = None;
-            window.config.items_selected.retain(
-                |_, (item_meta, ItemLocator { entry_id, irow })| {
+            window
+                .config
+                .items_selected
+                .retain(|_, (item_meta, item_loc)| {
                     let mut enabled = true;
                     let short_title: String = item_meta.title.chars().take(50).collect();
                     egui::Window::new(short_title)
@@ -2103,18 +2173,18 @@ impl eframe::App for ProfApp {
                         .open(&mut enabled)
                         .resizable(true)
                         .show(ctx, |ui| {
-                            if Self::display_task_details(ui, item_meta, cx) {
-                                zoom_target =
-                                    Some((entry_id.clone(), *irow, item_meta.original_interval));
+                            let target = Self::display_task_details(ui, item_meta, item_loc, cx);
+                            if target.is_some() {
+                                zoom_target = target;
                             }
                         });
                     enabled
-                },
-            );
-            if let Some((entry_id, irow, interval)) = zoom_target {
+                });
+            if let Some((item_loc, interval)) = zoom_target {
                 let interval = interval.grow(interval.duration_ns() / 20);
                 ProfApp::zoom(cx, interval);
-                window.config.search_state.item_select = Some(ItemLocator { entry_id, irow });
+                window.expand_slot(&item_loc.entry_id);
+                window.config.search_state.item_select = Some(item_loc);
             }
         }
 
