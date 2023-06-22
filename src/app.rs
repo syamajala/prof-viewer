@@ -81,6 +81,7 @@ struct FieldID(usize);
 
 struct FieldSchemaMap {
     fields: BTreeMap<FieldID, String>,
+    title_field: FieldID,
 }
 
 #[derive(Clone)]
@@ -1074,19 +1075,22 @@ impl SearchState {
         let mut fields = schema.fields;
         fields.insert("Title".to_owned());
 
-        let fields = fields
+        let fields: BTreeMap<_, _> = fields
             .into_iter()
             .enumerate()
             .map(|(i, v)| (FieldID(i), v))
             .collect();
-        let schema_map = FieldSchemaMap { fields };
 
-        let title = *schema_map
-            .fields
+        let title = *fields
             .iter()
             .find(|(_, v)| v.as_str() == "Title")
             .unwrap()
             .0;
+
+        let schema_map = FieldSchemaMap {
+            fields,
+            title_field: title,
+        };
 
         Self {
             field_schema: schema_map,
@@ -1147,7 +1151,20 @@ impl SearchState {
     }
 
     fn is_match(&self, item: &ItemMeta) -> bool {
-        item.title.contains(&self.query)
+        if self.search_field == self.field_schema.title_field {
+            item.title.contains(&self.query)
+        } else {
+            let field = self.field_schema.fields.get(&self.search_field).unwrap();
+            if let Some((_, value)) = item.fields.iter().find(|(x, _)| x == field) {
+                match value {
+                    Field::String(s) => s.contains(&self.query),
+                    Field::ItemLink(ItemLink { title, .. }) => title.contains(&self.query),
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        }
     }
 
     const MAX_SEARCH_RESULTS: usize = 100_000;
