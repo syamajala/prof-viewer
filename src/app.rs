@@ -85,6 +85,8 @@ struct ItemLocator {
 }
 
 struct SearchCacheItem {
+    item_uid: ItemUID,
+
     // Cache fields for display
     title: String,
 
@@ -109,7 +111,6 @@ struct SearchState {
     result_set: BTreeSet<ItemUID>,
     result_cache: BTreeMap<EntryID, BTreeMap<TileID, BTreeMap<ItemUID, SearchCacheItem>>>,
     entry_tree: BTreeMap<u64, BTreeMap<u64, BTreeSet<u64>>>,
-    item_select: Option<ItemLocator>,
 }
 
 struct Config {
@@ -131,6 +132,11 @@ struct Config {
 
     // When the user clicks on an item, we put it here
     items_selected: BTreeMap<ItemUID, (ItemMeta, ItemLocator)>,
+
+    // When the user clicks "Zoom to Item" or a search result, we put it here
+    scroll_to_item: Option<ItemLocator>,
+    // Same, but keep it around to highlight the item after arrival
+    scroll_to_item_uid: Option<ItemUID>,
 
     last_request_interval: Option<Interval>,
     request_tile_cache: Vec<TileID>,
@@ -606,16 +612,17 @@ impl Slot {
                     interact_item = Some((row, item_idx, item_rect, tile_id));
                 }
 
+                let highlight = config.items_selected.contains_key(&item.item_uid)
+                    || config.scroll_to_item_uid == Some(item.item_uid);
+
                 let mut color = item.color;
                 if !config.search_state.query.is_empty() {
-                    if config.search_state.result_set.contains(&item.item_uid)
-                        || config.items_selected.contains_key(&item.item_uid)
-                    {
+                    if config.search_state.result_set.contains(&item.item_uid) || highlight {
                         color = Color32::RED;
                     } else {
                         color = color.gamma_multiply(0.2);
                     }
-                } else if config.items_selected.contains_key(&item.item_uid) {
+                } else if highlight {
                     color = Color32::RED;
                 }
 
@@ -1143,6 +1150,7 @@ impl SearchState {
             cache
                 .entry(item.item_uid)
                 .or_insert_with(|| SearchCacheItem {
+                    item_uid: item.item_uid,
                     irow,
                     interval: item.original_interval,
                     title: item.title.clone(),
@@ -1190,6 +1198,8 @@ impl Config {
             data_source: CountingDeferredDataSource::new(data_source),
             search_state: SearchState::default(),
             items_selected: BTreeMap::new(),
+            scroll_to_item: None,
+            scroll_to_item_uid: None,
             last_request_interval: None,
             request_tile_cache: Vec::new(),
         }
@@ -1269,16 +1279,14 @@ impl Window {
 
                 let rect = Rect::from_min_size(ui.min_rect().min, viewport.size());
 
-                if let Some(ItemLocator { ref entry_id, irow }) =
-                    self.config.search_state.item_select
-                {
+                if let Some(ItemLocator { ref entry_id, irow }) = self.config.scroll_to_item {
                     let irow = irow.unwrap_or(0); // FIXME (Elliott): zoom to middle of entry
                     let prefix_height = self.panel.height(Some(entry_id), &self.config, cx);
                     let mut item_rect =
                         rect.translate(Vec2::new(0.0, prefix_height + irow as f32 * cx.row_height));
                     item_rect.set_height(cx.row_height);
                     ui.scroll_to_rect(item_rect, Some(egui::Align::Center));
-                    self.config.search_state.item_select = None;
+                    self.config.scroll_to_item = None;
                 }
 
                 // Root panel has no label
@@ -1528,11 +1536,13 @@ impl Window {
                                                         .interval
                                                         .grow(item.interval.duration_ns() / 20);
                                                     ProfApp::zoom(cx, interval);
-                                                    self.config.search_state.item_select =
+                                                    self.config.scroll_to_item =
                                                         Some(ItemLocator {
                                                             entry_id: level2_slot.entry_id.clone(),
                                                             irow: Some(item.irow),
                                                         });
+                                                    self.config.scroll_to_item_uid =
+                                                        Some(item.item_uid);
                                                     level2_slot.expanded = true;
                                                     level1_slot.expanded = true;
                                                     level0_slot.expanded = true;
@@ -1872,8 +1882,8 @@ impl ProfApp {
         item_meta: &ItemMeta,
         item_loc: &ItemLocator,
         cx: &Context,
-    ) -> Option<(ItemLocator, Interval)> {
-        let mut result: Option<(ItemLocator, Interval)> = None;
+    ) -> Option<(ItemUID, ItemLocator, Interval)> {
+        let mut result: Option<(ItemUID, ItemLocator, Interval)> = None;
         TableBuilder::new(ui)
             .striped(true)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -1938,12 +1948,13 @@ impl ProfApp {
                         }
                         Field::ItemLink(ItemLink {
                             title,
+                            item_uid,
                             interval,
                             entry_id,
-                            ..
                         }) => {
                             if show_row(name, title, Some("Zoom to Item")) {
                                 result = Some((
+                                    *item_uid,
                                     ItemLocator {
                                         entry_id: entry_id.clone(),
                                         irow: None,
@@ -1960,7 +1971,11 @@ impl ProfApp {
             });
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
             if ui.button("Zoom to Item").clicked() {
-                result = Some((item_loc.clone(), item_meta.original_interval));
+                result = Some((
+                    item_meta.item_uid,
+                    item_loc.clone(),
+                    item_meta.original_interval,
+                ));
             }
         });
         result
@@ -2179,11 +2194,12 @@ impl eframe::App for ProfApp {
                         });
                     enabled
                 });
-            if let Some((item_loc, interval)) = zoom_target {
+            if let Some((item_uid, item_loc, interval)) = zoom_target {
                 let interval = interval.grow(interval.duration_ns() / 20);
                 ProfApp::zoom(cx, interval);
                 window.expand_slot(&item_loc.entry_id);
-                window.config.search_state.item_select = Some(item_loc);
+                window.config.scroll_to_item = Some(item_loc);
+                window.config.scroll_to_item_uid = Some(item_uid);
             }
         }
 
