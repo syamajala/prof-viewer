@@ -1845,7 +1845,7 @@ impl ProfApp {
             .column(Column::remainder())
             .body(|mut body| {
                 let mut show_row = |a, b| {
-                    body.row(18.0, |mut row| {
+                    body.row(20.0, |mut row| {
                         row.col(|ui| {
                             ui.strong(a);
                         });
@@ -1901,8 +1901,7 @@ impl ProfApp {
                         .painter()
                         .layout(vb, font_id, visuals.text_color(), width);
 
-                    let rows = layout.rows.len();
-                    let height = 18.0 * rows as f32;
+                    let height = layout.size().y + style.spacing.item_spacing.y * 2.0;
 
                     let mut result = false;
                     body.row(height, |mut row| {
