@@ -76,17 +76,24 @@ struct Panel<S: Entry> {
     slots: Vec<S>,
 }
 
+struct ItemLocator {
+    // For vertical scroll, we need the item's entry ID and row index
+    // (note: reversed, because we're in screen space)
+    entry_id: EntryID,
+    irow: usize,
+}
+
 #[derive(Debug)]
 struct SearchCacheItem {
-    // For vertical scroll, we need the item's row index (note: reversed,
-    // because we're in screen space)
-    irow: usize,
+    // Cache fields for display
+    title: String,
 
     // For horizontal scroll, we need the item's interval
     interval: Interval,
 
-    // Cache fields for display
-    title: String,
+    // For vertical scroll, we need the item's row index (note: reversed,
+    // because we're in screen space)
+    irow: usize,
 }
 
 #[derive(Default)]
@@ -102,7 +109,7 @@ struct SearchState {
     result_set: BTreeSet<ItemUID>,
     result_cache: BTreeMap<EntryID, BTreeMap<TileID, BTreeMap<ItemUID, SearchCacheItem>>>,
     entry_tree: BTreeMap<u64, BTreeMap<u64, BTreeSet<u64>>>,
-    item_select: Option<(EntryID, usize)>,
+    item_select: Option<ItemLocator>,
 }
 
 struct Config {
@@ -122,8 +129,8 @@ struct Config {
 
     search_state: SearchState,
 
-    // Tasks selected by the user
-    tasks_selected: BTreeMap<ItemUID, (ItemMeta, EntryID, usize)>,
+    // When the user clicks on an item, we put it here
+    items_selected: BTreeMap<ItemUID, (ItemMeta, ItemLocator)>,
 
     last_request_interval: Option<Interval>,
     request_tile_cache: Vec<TileID>,
@@ -645,9 +652,10 @@ impl Slot {
                     // some duration, and it moved less than some amount).
                     if i.pointer.any_click() && i.pointer.primary_released() {
                         let irow = rows as usize - row - 1;
-                        config
-                            .tasks_selected
-                            .insert(item_meta.item_uid, (item_meta.clone(), entry_id, irow));
+                        config.items_selected.insert(
+                            item_meta.item_uid,
+                            (item_meta.clone(), ItemLocator { entry_id, irow }),
+                        );
                     }
                 });
             }
@@ -1156,7 +1164,7 @@ impl Config {
             tile_set,
             data_source: CountingDeferredDataSource::new(data_source),
             search_state: SearchState::default(),
-            tasks_selected: BTreeMap::new(),
+            items_selected: BTreeMap::new(),
             last_request_interval: None,
             request_tile_cache: Vec::new(),
         }
@@ -1232,7 +1240,9 @@ impl Window {
 
                 let rect = Rect::from_min_size(ui.min_rect().min, viewport.size());
 
-                if let Some((ref entry_id, irow)) = self.config.search_state.item_select {
+                if let Some(ItemLocator { ref entry_id, irow }) =
+                    self.config.search_state.item_select
+                {
                     let prefix_height = self.panel.height(Some(entry_id), &self.config, cx);
                     let mut item_rect =
                         rect.translate(Vec2::new(0.0, prefix_height + irow as f32 * cx.row_height));
@@ -1480,10 +1490,11 @@ impl Window {
                                                         .interval
                                                         .grow(item.interval.duration_ns() / 20);
                                                     ProfApp::zoom(cx, interval);
-                                                    self.config.search_state.item_select = Some((
-                                                        level2_slot.entry_id.clone(),
-                                                        item.irow,
-                                                    ));
+                                                    self.config.search_state.item_select =
+                                                        Some(ItemLocator {
+                                                            entry_id: level2_slot.entry_id.clone(),
+                                                            irow: item.irow,
+                                                        });
                                                     level2_slot.expanded = true;
                                                     level1_slot.expanded = true;
                                                     level0_slot.expanded = true;
@@ -2073,10 +2084,8 @@ impl eframe::App for ProfApp {
 
         for window in windows.iter_mut() {
             let mut zoom_target = None;
-            window
-                .config
-                .tasks_selected
-                .retain(|_, (item_meta, entry_id, irow)| {
+            window.config.items_selected.retain(
+                |_, (item_meta, ItemLocator { entry_id, irow })| {
                     let mut enabled = true;
                     let short_title: String = item_meta.title.chars().take(50).collect();
                     egui::Window::new(short_title)
@@ -2090,11 +2099,12 @@ impl eframe::App for ProfApp {
                             }
                         });
                     enabled
-                });
+                },
+            );
             if let Some((entry_id, irow, interval)) = zoom_target {
                 let interval = interval.grow(interval.duration_ns() / 20);
                 ProfApp::zoom(cx, interval);
-                window.config.search_state.item_select = Some((entry_id, irow));
+                window.config.search_state.item_select = Some(ItemLocator { entry_id, irow });
             }
         }
 
