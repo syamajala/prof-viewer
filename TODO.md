@@ -26,3 +26,4 @@
 - [ ] Task detail view
 - [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse)
 - [ ] Editable key bindings?
+- [ ] Better error handling (e.g., when the provided URL 404s, or parsing fails)

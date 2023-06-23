@@ -689,10 +689,17 @@ impl Slot {
                     // some duration, and it moved less than some amount).
                     if i.pointer.any_click() && i.pointer.primary_released() {
                         let irow = Some(rows as usize - row - 1);
-                        config.items_selected.insert(
-                            item_meta.item_uid,
-                            (item_meta.clone(), ItemLocator { entry_id, irow }),
-                        );
+                        if config.items_selected.contains_key(&item_meta.item_uid) {
+                            config.items_selected.remove(&item_meta.item_uid);
+                            if config.scroll_to_item_uid == Some(item_meta.item_uid) {
+                                config.scroll_to_item_uid = None;
+                            }
+                        } else {
+                            config.items_selected.insert(
+                                item_meta.item_uid,
+                                (item_meta.clone(), ItemLocator { entry_id, irow }),
+                            );
+                        }
                     }
                 });
             }
