@@ -514,6 +514,40 @@ impl Entry for Summary {
     }
 }
 
+impl fmt::Display for Field {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Field::I64(value) => write!(f, "{value}"),
+            Field::U64(value) => write!(f, "{value}"),
+            Field::String(value) => write!(f, "{value}"),
+            Field::Interval(value) => write!(f, "{value}"),
+            Field::ItemLink(ItemLink { title, .. }) => write!(f, "{title}"),
+            Field::Vec(fields) => {
+                for (i, field) in fields.iter().enumerate() {
+                    write!(f, "{field}")?;
+                    if i < fields.len() {
+                        write!(f, ", ")?;
+                    }
+                }
+                Ok(())
+            }
+            Field::Empty => write!(f, ""),
+        }
+    }
+}
+
+struct FieldWithName<'a>(&'a str, &'a Field);
+
+impl<'a> fmt::Display for FieldWithName<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let FieldWithName(name, value) = self;
+        match value {
+            Field::Empty => write!(f, "{name}"),
+            _ => write!(f, "{name}: {value}"),
+        }
+    }
+}
+
 impl Slot {
     fn rows(&self) -> u64 {
         const UNEXPANDED_ROWS: u64 = 2;
@@ -658,26 +692,7 @@ impl Slot {
                     }
                     for (field_id, field) in &item_meta.fields {
                         let name = config.field_schema.get_name(*field_id).unwrap();
-                        match field {
-                            Field::I64(value) => {
-                                ui.label(format!("{name}: {value}"));
-                            }
-                            Field::U64(value) => {
-                                ui.label(format!("{name}: {value}"));
-                            }
-                            Field::String(value) => {
-                                ui.label(format!("{name}: {value}"));
-                            }
-                            Field::Interval(value) => {
-                                ui.label(format!("{name}: {value}"));
-                            }
-                            Field::ItemLink(ItemLink { title, .. }) => {
-                                ui.label(format!("{name}: {title}"));
-                            }
-                            Field::Empty => {
-                                ui.label(name);
-                            }
-                        }
+                        ui.label(format!("{}", FieldWithName(name, field)));
                     }
                     ui.label("(Click to show details.)");
                 });
@@ -1141,16 +1156,25 @@ impl SearchState {
         }
     }
 
+    fn is_string_match(&self, s: &str) -> bool {
+        s.contains(&self.query)
+    }
+
+    fn is_field_match(&self, field: &Field) -> bool {
+        match field {
+            Field::String(s) => self.is_string_match(s),
+            Field::ItemLink(ItemLink { title, .. }) => self.is_string_match(title),
+            Field::Vec(fields) => fields.iter().any(|f| self.is_field_match(f)),
+            _ => false,
+        }
+    }
+
     fn is_match(&self, item: &ItemMeta) -> bool {
         let field = self.search_field;
         if field == self.title_field {
             item.title.contains(&self.query)
         } else if let Some((_, value)) = item.fields.iter().find(|(x, _)| *x == field) {
-            match value {
-                Field::String(s) => s.contains(&self.query),
-                Field::ItemLink(ItemLink { title, .. }) => title.contains(&self.query),
-                _ => false,
-            }
+            self.is_field_match(value)
         } else {
             false
         }
@@ -2041,6 +2065,10 @@ impl ProfApp {
                                     *interval,
                                 ));
                             }
+                        }
+                        Field::Vec(_) => {
+                            // FIXME (Elliott): render nested buttons
+                            show_row(name, &format!("{field}"), None);
                         }
                         Field::Empty => {
                             show_row(name, "", None);

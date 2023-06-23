@@ -137,6 +137,7 @@ pub enum Field {
     String(String),
     Interval(Interval),
     ItemLink(ItemLink),
+    Vec(Vec<Field>),
     Empty,
 }
 
