@@ -5,7 +5,7 @@ use crate::data::{
 pub trait DeferredDataSource {
     fn fetch_info(&mut self);
     fn get_infos(&mut self) -> Vec<DataSourceInfo>;
-    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID);
+    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool);
     fn get_summary_tiles(&mut self) -> Vec<SummaryTile>;
     fn fetch_slot_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool);
     fn get_slot_tiles(&mut self) -> Vec<SlotTile>;
@@ -42,9 +42,9 @@ impl<T: DataSourceMut> DeferredDataSource for DeferredDataSourceWrapper<T> {
         std::mem::take(&mut self.infos)
     }
 
-    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         self.summary_tiles
-            .push(self.data_source.fetch_summary_tile(entry_id, tile_id));
+            .push(self.data_source.fetch_summary_tile(entry_id, tile_id, full));
     }
 
     fn get_summary_tiles(&mut self) -> Vec<SummaryTile> {
@@ -112,9 +112,9 @@ impl<T: DeferredDataSource> DeferredDataSource for CountingDeferredDataSource<T>
         self.finish_request(result)
     }
 
-    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         self.start_request();
-        self.data_source.fetch_summary_tile(entry_id, tile_id)
+        self.data_source.fetch_summary_tile(entry_id, tile_id, full)
     }
 
     fn get_summary_tiles(&mut self) -> Vec<SummaryTile> {
@@ -153,8 +153,8 @@ impl DeferredDataSource for Box<dyn DeferredDataSource> {
         self.as_mut().get_infos()
     }
 
-    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
-        self.as_mut().fetch_summary_tile(entry_id, tile_id)
+    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
+        self.as_mut().fetch_summary_tile(entry_id, tile_id, full)
     }
 
     fn get_summary_tiles(&mut self) -> Vec<SummaryTile> {

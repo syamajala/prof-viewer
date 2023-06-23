@@ -272,7 +272,12 @@ impl DataSourceMut for RandomDataSource {
         self.info.clone()
     }
 
-    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) -> SummaryTile {
+    fn fetch_summary_tile(
+        &mut self,
+        entry_id: &EntryID,
+        tile_id: TileID,
+        _full: bool,
+    ) -> SummaryTile {
         let utilization = self.generate_summary(entry_id);
 
         let mut tile_utilization = Vec::new();

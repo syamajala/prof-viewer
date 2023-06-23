@@ -342,7 +342,7 @@ impl Summary {
         for tile_id in config.request_tiles(cx.view_interval) {
             config
                 .data_source
-                .fetch_summary_tile(&self.entry_id, tile_id);
+                .fetch_summary_tile(&self.entry_id, tile_id, false);
             self.tiles.insert(tile_id, None);
         }
     }

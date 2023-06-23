@@ -41,6 +41,7 @@ async fn fetch_info(state: web::Data<AppState>) -> Result<impl Responder> {
 #[get("/summary_tile/{entry_id}/{tile_id}")]
 async fn fetch_summary_tile(
     path: web::Path<TileRequestPath>,
+    query: web::Query<TileQuery>,
     state: web::Data<AppState>,
 ) -> Result<impl Responder> {
     let path = path
@@ -48,7 +49,7 @@ async fn fetch_summary_tile(
         .map_err(|e| error::ErrorBadRequest(format!("bad request: {}", e)))?;
     let result = state
         .data_source
-        .fetch_summary_tile(&path.entry_id, path.tile_id);
+        .fetch_summary_tile(&path.entry_id, path.tile_id, query.full);
     encode(result)
 }
 

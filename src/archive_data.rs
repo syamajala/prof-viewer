@@ -222,7 +222,8 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                 match entry_id.last_index().unwrap() {
                     EntryIndex::Summary => {
                         for tile_id in tile_ids {
-                            self.data_source.fetch_summary_tile(entry_id, *tile_id);
+                            self.data_source
+                                .fetch_summary_tile(entry_id, *tile_id, full);
                         }
                     }
                     EntryIndex::Slot(..) => {

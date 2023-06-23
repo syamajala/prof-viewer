@@ -39,12 +39,12 @@ impl<T: DataSource + Send + Sync + 'static> DeferredDataSource for ParallelDefer
         std::mem::take(&mut self.infos.lock().unwrap())
     }
 
-    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         let entry_id = entry_id.clone();
         let data_source = self.data_source.clone();
         let summary_tiles = self.summary_tiles.clone();
         rayon::spawn(move || {
-            let result = data_source.fetch_summary_tile(&entry_id, tile_id);
+            let result = data_source.fetch_summary_tile(&entry_id, tile_id, full);
             summary_tiles.lock().unwrap().push(result);
         });
     }

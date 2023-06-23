@@ -71,13 +71,14 @@ impl DeferredDataSource for HTTPClientDataSource {
         std::mem::take(&mut self.infos.lock().unwrap())
     }
 
-    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID) {
+    fn fetch_summary_tile(&mut self, entry_id: &EntryID, tile_id: TileID, full: bool) {
         let req = TileRequestRef { entry_id, tile_id };
-        let url = self
+        let mut url = self
             .baseurl
             .join("summary_tile/")
             .and_then(|u| u.join(&req.to_slug()))
             .expect("invalid baseurl");
+        url.set_query(Some(&format!("full={}", full)));
         self.request::<SummaryTile>(url, self.summary_tiles.clone());
     }
 
