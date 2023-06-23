@@ -243,15 +243,15 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                     }
                 });
             }
-
-            rayon::in_place_scope(|s| {
-                while self.data_source.outstanding_requests() > 0 {
-                    self.write_summary_tiles(s);
-                    self.write_slot_tiles(s);
-                    self.write_slot_meta_tiles(s);
-                }
-            });
         }
+
+        rayon::in_place_scope(|s| {
+            while self.data_source.outstanding_requests() > 0 {
+                self.write_summary_tiles(s);
+                self.write_slot_tiles(s);
+                self.write_slot_meta_tiles(s);
+            }
+        });
 
         Ok(())
     }
