@@ -689,16 +689,14 @@ impl Slot {
                     // some duration, and it moved less than some amount).
                     if i.pointer.any_click() && i.pointer.primary_released() {
                         let irow = Some(rows as usize - row - 1);
-                        if config.items_selected.contains_key(&item_meta.item_uid) {
-                            config.items_selected.remove(&item_meta.item_uid);
-                            if config.scroll_to_item_uid == Some(item_meta.item_uid) {
+                        match config.items_selected.entry(item_meta.item_uid) {
+                            std::collections::btree_map::Entry::Vacant(e) => {
+                                e.insert((item_meta.clone(), ItemLocator { entry_id, irow }));
+                            }
+                            std::collections::btree_map::Entry::Occupied(e) => {
+                                e.remove_entry();
                                 config.scroll_to_item_uid = None;
                             }
-                        } else {
-                            config.items_selected.insert(
-                                item_meta.item_uid,
-                                (item_meta.clone(), ItemLocator { entry_id, irow }),
-                            );
                         }
                     }
                 });
