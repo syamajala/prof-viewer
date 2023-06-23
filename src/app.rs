@@ -1978,6 +1978,96 @@ impl ProfApp {
             });
     }
 
+    fn compute_text_height(text: String, width: f32, ui: &mut egui::Ui) -> f32 {
+        let style = ui.style();
+        let font_id = TextStyle::Body.resolve(style);
+        let visuals = style.noninteractive();
+        let layout = ui
+            .painter()
+            .layout(text, font_id, visuals.text_color(), width);
+
+        layout.size().y + style.spacing.item_spacing.y * 2.0
+    }
+
+    fn render_field_as_text(field: &Field) -> Vec<(String, Option<&'static str>)> {
+        match field {
+            Field::I64(value) => vec![(format!("{value}"), None)],
+            Field::U64(value) => vec![(format!("{value}"), None)],
+            Field::String(value) => vec![(value.to_string(), None)],
+            Field::Interval(value) => vec![(format!("{value}"), None)],
+            Field::ItemLink(ItemLink { title, .. }) => {
+                vec![(title.to_string(), Some("Zoom to Item"))]
+            }
+            Field::Vec(fields) => fields.iter().flat_map(Self::render_field_as_text).collect(),
+            Field::Empty => vec![("".to_string(), None)],
+        }
+    }
+
+    fn compute_field_height(field: &Field, width: f32, ui: &mut egui::Ui) -> f32 {
+        let text = Self::render_field_as_text(field);
+        text.into_iter()
+            .map(|(mut v, b)| {
+                // Hack: if we have button text, guess how much space it will need
+                // by extending the string.
+                if let Some(b) = b {
+                    v.push(' ');
+                    v.push_str(b);
+                }
+                Self::compute_text_height(v, width, ui)
+            })
+            .sum()
+    }
+
+    fn render_field_as_ui(
+        field: &Field,
+        ui: &mut egui::Ui,
+    ) -> Option<(ItemUID, ItemLocator, Interval)> {
+        let mut result = None;
+        let label = |ui: &mut egui::Ui, v| {
+            ui.add(egui::Label::new(v).wrap(true));
+        };
+        let label_button = |ui: &mut egui::Ui, v, b| {
+            label(ui, v);
+            ui.button(b).clicked()
+        };
+        match field {
+            Field::I64(value) => label(ui, &format!("{value}")),
+            Field::U64(value) => label(ui, &format!("{value}")),
+            Field::String(value) => label(ui, value),
+            Field::Interval(value) => label(ui, &format!("{value}")),
+            Field::ItemLink(ItemLink {
+                title,
+                item_uid,
+                interval,
+                entry_id,
+            }) => {
+                if label_button(ui, title, "Zoom to Item") {
+                    result = Some((
+                        *item_uid,
+                        ItemLocator {
+                            entry_id: entry_id.clone(),
+                            irow: None,
+                        },
+                        *interval,
+                    ));
+                }
+            }
+            Field::Vec(fields) => {
+                ui.vertical(|ui| {
+                    for f in fields {
+                        ui.horizontal(|ui| {
+                            if let Some(x) = Self::render_field_as_ui(f, ui) {
+                                result = Some(x);
+                            }
+                        });
+                    }
+                });
+            }
+            Field::Empty => {}
+        }
+        result
+    }
+
     fn display_task_details(
         ui: &mut egui::Ui,
         item_meta: &ItemMeta,
@@ -1992,88 +2082,33 @@ impl ProfApp {
             .column(Column::auto())
             .column(Column::remainder())
             .body(|mut body| {
-                let mut show_row = |k: &str, v: &str, b: Option<&str>| -> bool {
+                let mut show_row = |k: &str, field: &Field| {
                     // We need to manually work out the height of the labels
                     // so that the table knows how large to make each row.
                     let width = body.widths()[1];
 
-                    // Hack: if we have button text, guess how much space it
-                    // will need by extending the string.
-                    let mut vb = v.to_string();
-                    if let Some(b) = b {
-                        vb.push(' ');
-                        vb.push_str(b);
-                    }
-
                     let ui = body.ui_mut();
-                    let style = ui.style();
-                    let font_id = TextStyle::Body.resolve(style);
-                    let visuals = style.noninteractive();
-                    let layout = ui
-                        .painter()
-                        .layout(vb, font_id, visuals.text_color(), width);
+                    let height = Self::compute_field_height(field, width, ui);
 
-                    let height = layout.size().y + style.spacing.item_spacing.y * 2.0;
-
-                    let mut result = false;
                     body.row(height, |mut row| {
                         row.col(|ui| {
                             ui.strong(k);
                         });
                         row.col(|ui| {
-                            ui.add(egui::Label::new(v).wrap(true));
-                            if let Some(b) = b {
-                                result = ui.button(b).clicked();
+                            if let Some(x) = Self::render_field_as_ui(field, ui) {
+                                result = Some(x);
                             }
                         });
                     });
-                    result
                 };
 
-                show_row("Title", &item_meta.title, None);
+                show_row("Title", &Field::String(item_meta.title.to_string()));
                 if cx.debug {
-                    show_row("Item UID", &format!("{}", item_meta.item_uid.0), None);
+                    show_row("Item UID", &Field::U64(item_meta.item_uid.0));
                 }
                 for (field_id, field) in &item_meta.fields {
                     let name = field_schema.get_name(*field_id).unwrap();
-                    match field {
-                        Field::I64(value) => {
-                            show_row(name, &format!("{value}"), None);
-                        }
-                        Field::U64(value) => {
-                            show_row(name, &format!("{value}"), None);
-                        }
-                        Field::String(value) => {
-                            show_row(name, value, None);
-                        }
-                        Field::Interval(value) => {
-                            show_row(name, &format!("{value}"), None);
-                        }
-                        Field::ItemLink(ItemLink {
-                            title,
-                            item_uid,
-                            interval,
-                            entry_id,
-                        }) => {
-                            if show_row(name, title, Some("Zoom to Item")) {
-                                result = Some((
-                                    *item_uid,
-                                    ItemLocator {
-                                        entry_id: entry_id.clone(),
-                                        irow: None,
-                                    },
-                                    *interval,
-                                ));
-                            }
-                        }
-                        Field::Vec(_) => {
-                            // FIXME (Elliott): render nested buttons
-                            show_row(name, &format!("{field}"), None);
-                        }
-                        Field::Empty => {
-                            show_row(name, "", None);
-                        }
-                    }
+                    show_row(name, field);
                 }
             });
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
