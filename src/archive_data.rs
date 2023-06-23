@@ -199,25 +199,49 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                     TileID(Interval::new(start, stop))
                 })
                 .collect();
+            tile_set.push(tile_ids);
+        }
+
+        info.tile_set = TileSet {
+            tiles: tile_set.clone(),
+        };
+
+        rayon::in_place_scope(|s| {
+            self.write_info(info, s);
+        });
+
+        for level in 0..self.levels {
+            let tile_ids = &tile_set[level as usize];
             let full = level == self.levels - 1;
 
-            println!("Writing level {} with {} tiles", level, num_tiles);
+            println!("Writing level {} with {} tiles", level, tile_ids.len());
+
+            const MAX_IN_FLIGHT_REQUESTS: u64 = 100;
 
             for entry_id in &entry_ids {
                 match entry_id.last_index().unwrap() {
                     EntryIndex::Summary => {
-                        for tile_id in &tile_ids {
+                        for tile_id in tile_ids {
                             self.data_source.fetch_summary_tile(entry_id, *tile_id);
                         }
                     }
                     EntryIndex::Slot(..) => {
-                        for tile_id in &tile_ids {
+                        for tile_id in tile_ids {
                             self.data_source.fetch_slot_tile(entry_id, *tile_id, full);
                             self.data_source
                                 .fetch_slot_meta_tile(entry_id, *tile_id, full);
                         }
                     }
                 }
+
+                // Bound the number of in-flight requests so we don't use too much memory.
+                rayon::in_place_scope(|s| {
+                    while self.data_source.outstanding_requests() > MAX_IN_FLIGHT_REQUESTS {
+                        self.write_summary_tiles(s);
+                        self.write_slot_tiles(s);
+                        self.write_slot_meta_tiles(s);
+                    }
+                });
             }
 
             rayon::in_place_scope(|s| {
@@ -227,15 +251,7 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
                     self.write_slot_meta_tiles(s);
                 }
             });
-
-            tile_set.push(tile_ids);
         }
-
-        info.tile_set = TileSet { tiles: tile_set };
-
-        rayon::in_place_scope(|s| {
-            self.write_info(info, s);
-        });
 
         Ok(())
     }
