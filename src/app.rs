@@ -205,23 +205,29 @@ struct IntervalSelectState {
 
 #[derive(Default, Deserialize, Serialize)]
 struct Context {
+    #[serde(skip)]
     row_height: f32,
     #[serde(skip)]
     scale_factor: f32,
 
+    #[serde(skip)]
     subheading_size: f32,
 
     // This is across all profiles
+    #[serde(skip)]
     total_interval: Interval,
 
     // Visible time range
+    #[serde(skip)]
     view_interval: Interval,
 
+    #[serde(skip)]
     drag_origin: Option<Pos2>,
 
     // Hack: We need to track the screenspace rect where slot/summary
     // data gets drawn. This gets used rendering the cursor, but we
     // only know it when we render slots. So stash it here.
+    #[serde(skip)]
     slot_rect: Option<Rect>,
 
     toggle_dark_mode: bool,
@@ -1442,8 +1448,8 @@ impl Window {
                         cx.interval_state.start_error = Some(IntervalSelectError::StartAfterEnd);
                         return;
                     }
-                    cx.view_interval.start = start;
-                    ProfApp::zoom(cx, cx.view_interval);
+                    let target = Interval::new(start, cx.view_interval.stop);
+                    ProfApp::zoom(cx, target);
                 }
                 Err(e) => {
                     cx.interval_state.start_error = Some(e.into());
@@ -1460,8 +1466,8 @@ impl Window {
                         cx.interval_state.stop_error = Some(IntervalSelectError::StopBeforeStart);
                         return;
                     }
-                    cx.view_interval.stop = stop;
-                    ProfApp::zoom(cx, cx.view_interval);
+                    let target = Interval::new(cx.view_interval.start, stop);
+                    ProfApp::zoom(cx, target);
                 }
                 Err(e) => {
                     cx.interval_state.stop_error = Some(e.into());
@@ -1699,7 +1705,7 @@ impl ProfApp {
     }
 
     fn redo_zoom(cx: &mut Context) {
-        if cx.zoom_state.index == cx.zoom_state.levels.len() - 1 {
+        if cx.zoom_state.index + 1 >= cx.zoom_state.levels.len() {
             return;
         }
         cx.zoom_state.index += 1;
