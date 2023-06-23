@@ -47,6 +47,7 @@ use crate::timestamp::{Interval, Timestamp, TimestampParseError};
 ///   * One Slot for each processor, channel, memory
 ///   * Viewer widget for items
 
+#[derive(Debug, Clone)]
 struct Summary {
     entry_id: EntryID,
     color: Color32,
@@ -54,6 +55,7 @@ struct Summary {
     last_view_interval: Option<Interval>,
 }
 
+#[derive(Debug, Clone)]
 struct Slot {
     entry_id: EntryID,
     short_name: String,
@@ -66,6 +68,7 @@ struct Slot {
     last_view_interval: Option<Interval>,
 }
 
+#[derive(Debug, Clone)]
 struct Panel<S: Entry> {
     entry_id: EntryID,
     short_name: String,
@@ -76,7 +79,7 @@ struct Panel<S: Entry> {
     slots: Vec<S>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct ItemLocator {
     // For vertical scroll, we need the item's entry ID and row index
     // (note: reversed, because we're in screen space)
@@ -84,6 +87,7 @@ struct ItemLocator {
     irow: Option<usize>,
 }
 
+#[derive(Debug, Clone)]
 struct SearchCacheItem {
     item_uid: ItemUID,
 
@@ -98,6 +102,7 @@ struct SearchCacheItem {
     irow: usize,
 }
 
+#[derive(Debug, Clone)]
 struct SearchState {
     title_field: FieldID,
 
@@ -153,7 +158,7 @@ struct Window {
     config: Config,
 }
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 struct ZoomState {
     levels: Vec<Interval>,
     index: usize,
@@ -192,7 +197,7 @@ impl fmt::Display for IntervalSelectError {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 struct IntervalSelectState {
     // User-entered strings for the interval start/stop.
     start_buffer: String,
@@ -203,7 +208,7 @@ struct IntervalSelectState {
     stop_error: Option<IntervalSelectError>,
 }
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 struct Context {
     #[serde(skip)]
     row_height: f32,
