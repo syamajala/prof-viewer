@@ -2440,7 +2440,7 @@ impl UiExtra for egui::Ui {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn start(data_sources: Vec<Box<dyn DeferredDataSource>>) {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    env_logger::try_init().unwrap_or(()); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
