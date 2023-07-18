@@ -9,7 +9,7 @@ repository](https://github.com/StanfordLegion/legion) and run:
 
 ```
 git clone https://github.com/StanfordLegion/legion.git
-cargo install --path legion/tools/legion_prof_rs
+cargo install --locked --all-features --path legion/tools/legion_prof_rs
 ```
 
 To start a native viewer right away, run:
