@@ -99,10 +99,6 @@ impl DataSourceHTTPServer {
     #[actix_web::main]
     pub async fn run(self) -> std::io::Result<()> {
         let state = Data::from(Arc::new(self.state));
-        if std::env::var_os("RUST_LOG").is_none() {
-            std::env::set_var("RUST_LOG", "info");
-        }
-        env_logger::init();
         HttpServer::new(move || {
             let cors = Cors::default()
                 .send_wildcard()
