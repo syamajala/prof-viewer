@@ -24,6 +24,41 @@
 - [x] Filter by kind
 - [x] Task detail view
 - [ ] Horizontal pan (including drag, keyboard, horizontal scroll wheel)
-- [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse)
+- [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse, ESC key to close popups)
 - [ ] Editable key bindings?
-- [ ] Better error handling (e.g., when the provided URL 404s, or parsing fails)
+- [ ] Better error handling (e.g., when the provided URL 404s, there's a permission issue, or parsing fails)
+- [ ] Make text in popup boxes copyable
+- [ ] Make highlighted boxes clearer
+
+  Currently a highlighted box is shown in red, but that color is already in use in the default color scheme, so highlighted items don't stand out
+
+  Possible solutions:
+
+  - "halo" effect for highlighted box
+  - different fill pattern
+  - different line color
+  - saturate all other boxes except the highlighted one (as happens for search)
+
+- [ ] When user clicks "zoom to item", e.g. on an instance listed in a task box, also open that new item's popup
+- [ ] Have the tooltip box wrap text / scroll vertically if the contents are too long,
+      e.g. if we're trying to show full backtraces on provenance, or there's many field names to list
+- [ ] Color instances using a heat map based on size
+- [ ] The "zoom reset" keyboard shortcut (ctrl + left arrow) doesn't work on MacOS (at least Safari)
+- [ ] Thousands separator on large numbers
+- [ ] Add average bandwidth measure on copies
+- [ ] Add button for "export current view to image"
+- [ ] Report both field IDs and field names
+- [ ] On each instance box, add a "zoom to item" button to the "initiator" (i.e. the task that created that instance?)
+- [ ] Provenance strings that contain a machine-readable part (after a `$` delimiter) are not parsed
+  
+  E.g. a full provenance string like:
+  
+      foo.py:42$OpCode,MULTIPLY|Provenance,foo.py:42
+
+  should be getting reported as:
+
+      foo.py:42
+      OpCode=MULTIPLY
+
+- [ ] Include in the window title the directory where the profile logs are
+- [ ] In server mode, add a form on the top-level served page, where the user can specify which files to open, instead of having to enter this information manually on the URL as a GET `url=` parameter
