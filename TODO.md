@@ -49,16 +49,6 @@
 - [ ] Add button for "export current view to image"
 - [ ] Report both field IDs and field names
 - [ ] On each instance box, add a "zoom to item" button to the "initiator" (i.e. the task that created that instance?)
-- [ ] Provenance strings that contain a machine-readable part (after a `$` delimiter) are not parsed
-  
-  E.g. a full provenance string like:
-  
-      foo.py:42$OpCode,MULTIPLY|Provenance,foo.py:42
-
-  should be getting reported as:
-
-      foo.py:42
-      OpCode=MULTIPLY
-
+- [ ] Parse provenance information, according to https://github.com/StanfordLegion/legion/issues/1554
 - [ ] Include in the window title the directory where the profile logs are
 - [ ] In server mode, add a form on the top-level served page, where the user can specify which files to open, instead of having to enter this information manually on the URL as a GET `url=` parameter
