@@ -9,6 +9,7 @@ use egui::{
 };
 use egui_extras::{Column, TableBuilder};
 use percentage::{Percentage, PercentageInteger};
+use regex::{escape, Regex};
 use serde::{Deserialize, Serialize};
 
 use crate::data::{
@@ -110,10 +111,13 @@ struct SearchState {
     // Search parameters
     query: String,
     last_query: String,
-    include_collapsed_entries: bool,
-    last_include_collapsed_entries: bool,
     search_field: FieldID,
     last_search_field: FieldID,
+    whole_word: bool,
+    last_whole_word: bool,
+    last_word_regex: Option<Regex>,
+    include_collapsed_entries: bool,
+    last_include_collapsed_entries: bool,
     last_view_interval: Option<Interval>,
 
     // Cache of matching items
@@ -1111,10 +1115,13 @@ impl SearchState {
 
             query: "".to_owned(),
             last_query: "".to_owned(),
-            include_collapsed_entries: false,
-            last_include_collapsed_entries: false,
             search_field: title_id,
             last_search_field: title_id,
+            whole_word: false,
+            last_whole_word: false,
+            last_word_regex: None,
+            include_collapsed_entries: false,
+            last_include_collapsed_entries: false,
             last_view_interval: None,
 
             result_set: BTreeSet::new(),
@@ -1144,6 +1151,12 @@ impl SearchState {
             self.last_search_field = self.search_field;
         }
 
+        // Invalidate when the whole word setting changes.
+        if self.whole_word != self.last_whole_word {
+            invalidate = true;
+            self.last_whole_word = self.whole_word;
+        }
+
         // Invalidate when EXCLUDING collapsed entries. (I.e., because the
         // searched set shrinks. Growing is ok because search is monotonic.)
         if self.include_collapsed_entries != self.last_include_collapsed_entries
@@ -1160,12 +1173,24 @@ impl SearchState {
         }
 
         if invalidate {
+            if self.whole_word {
+                let regex_string = format!("\\b{}\\b", escape(&self.query));
+                self.last_word_regex = Some(Regex::new(&regex_string).unwrap());
+            }
+
             self.clear();
         }
     }
 
     fn is_string_match(&self, s: &str) -> bool {
-        s.contains(&self.query)
+        if self.whole_word {
+            let Some(regex) = &self.last_word_regex else {
+                unreachable!();
+            };
+            regex.is_match(s)
+        } else {
+            s.contains(&self.query)
+        }
     }
 
     fn is_field_match(&self, field: &Field) -> bool {
@@ -1180,7 +1205,7 @@ impl SearchState {
     fn is_match(&self, item: &ItemMeta) -> bool {
         let field = self.search_field;
         if field == self.title_field {
-            item.title.contains(&self.query)
+            self.is_string_match(&item.title)
         } else if let Some((_, value)) = item.fields.iter().find(|(x, _)| *x == field) {
             self.is_field_match(value)
         } else {
@@ -1583,6 +1608,10 @@ impl Window {
                     }
                 });
         });
+        ui.checkbox(
+            &mut self.config.search_state.whole_word,
+            "Match whole words only",
+        );
         ui.checkbox(
             &mut self.config.search_state.include_collapsed_entries,
             "Include collapsed processors",
