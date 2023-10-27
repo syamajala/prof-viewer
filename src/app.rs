@@ -8,6 +8,8 @@ use egui::{
     Align2, Color32, NumExt, Pos2, Rect, RichText, ScrollArea, Slider, Stroke, TextStyle, Vec2,
 };
 use egui_extras::{Column, TableBuilder};
+#[cfg(not(target_arch = "wasm32"))]
+use itertools::Itertools;
 use percentage::{Percentage, PercentageInteger};
 use regex::{escape, Regex};
 use serde::{Deserialize, Serialize};
@@ -2542,9 +2544,24 @@ impl UiExtra for egui::Ui {
 pub fn start(data_sources: Vec<Box<dyn DeferredDataSource>>) {
     env_logger::try_init().unwrap_or(()); // Log to stderr (if you run with `RUST_LOG=debug`).
 
+    let all_locators = data_sources
+        .iter()
+        .flat_map(|x| x.fetch_description().source_locator)
+        .collect::<Vec<_>>();
+
+    let unique_locators = all_locators.into_iter().unique().collect_vec();
+
+    let locator = match &unique_locators[..] {
+        [] => "No data source".to_string(),
+        [x] => x.to_string(),
+        [x, ..] => format!("{} and {} other sources", x, unique_locators.len() - 1),
+    };
+
+    let app_name = format!("{locator} - Legion Prof");
+
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
-        "Legion Prof",
+        &app_name,
         native_options,
         Box::new(|cc| Box::new(ProfApp::new(cc, data_sources))),
     )

@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::data::{
-    DataSource, DataSourceInfo, EntryID, SlotMetaTile, SlotTile, SummaryTile, TileID,
+    DataSource, DataSourceDescription, DataSourceInfo, EntryID, SlotMetaTile, SlotTile,
+    SummaryTile, TileID,
 };
 use crate::http::schema::TileRequestRef;
 
@@ -30,6 +31,11 @@ impl FileDataSource {
 }
 
 impl DataSource for FileDataSource {
+    fn fetch_description(&self) -> DataSourceDescription {
+        DataSourceDescription {
+            source_locator: vec![String::from(self.basedir.to_string_lossy())],
+        }
+    }
     fn fetch_info(&self) -> DataSourceInfo {
         let path = self.basedir.join("info");
         self.read_file::<DataSourceInfo>(&path)

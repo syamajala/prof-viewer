@@ -13,7 +13,9 @@ use serde::Deserialize;
 
 use url::Url;
 
-use crate::data::{DataSourceInfo, EntryID, SlotMetaTile, SlotTile, SummaryTile, TileID};
+use crate::data::{
+    DataSourceDescription, DataSourceInfo, EntryID, SlotMetaTile, SlotTile, SummaryTile, TileID,
+};
 use crate::deferred_data::DeferredDataSource;
 use crate::http::fetch::{fetch, DataSourceResponse};
 use crate::http::schema::TileRequestRef;
@@ -62,6 +64,12 @@ impl HTTPClientDataSource {
 }
 
 impl DeferredDataSource for HTTPClientDataSource {
+    fn fetch_description(&self) -> DataSourceDescription {
+        DataSourceDescription {
+            source_locator: vec![self.baseurl.to_string()],
+        }
+    }
+
     fn fetch_info(&mut self) {
         let url = self.baseurl.join("info").expect("invalid baseurl");
         self.request::<DataSourceInfo>(url, self.infos.clone());
