@@ -23,6 +23,7 @@
 - [x] Open window to show key bindings
 - [x] Filter by kind
 - [x] Task detail view
+- [x] Include in the window title the directory where the profile logs are
 - [ ] Horizontal pan (including drag, keyboard, horizontal scroll wheel)
 - [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse, ESC key to close popups)
 - [ ] Editable key bindings?
@@ -50,7 +51,6 @@
 - [ ] Report both field IDs and field names
 - [ ] On each instance box, add a "zoom to item" button to the "initiator" (i.e. the task that created that instance?)
 - [ ] Parse provenance information, according to https://github.com/StanfordLegion/legion/issues/1554
-- [ ] Include in the window title the directory where the profile logs are
 - [ ] In server mode, add a form on the top-level served page, where the user can specify which files to open, instead of having to enter this information manually on the URL as a GET `url=` parameter
 - [ ] Vertical scrolling within the "control widgets" group
 
