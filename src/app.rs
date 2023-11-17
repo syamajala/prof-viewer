@@ -1322,7 +1322,8 @@ impl Config {
         }
     }
 
-    fn request_tiles(&mut self, request_interval: Interval) -> Vec<TileID> {
+    fn request_tiles(&mut self, view_interval: Interval) -> Vec<TileID> {
+        let request_interval = view_interval.intersection(self.interval);
         if self.last_request_interval == Some(request_interval) {
             return self.request_tile_cache.clone();
         }
