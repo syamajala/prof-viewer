@@ -5,6 +5,7 @@ pub mod app;
 pub mod archive_data;
 pub mod data;
 pub mod deferred_data;
+pub mod sql_dump;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod file_data;
 pub mod http;

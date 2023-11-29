@@ -65,7 +65,7 @@ where
     });
 }
 
-fn walk_entry_list(info: &EntryInfo) -> Vec<EntryID> {
+pub fn walk_entry_list(info: &EntryInfo) -> Vec<EntryID> {
     let mut result = Vec::new();
     fn walk(info: &EntryInfo, entry_id: EntryID, result: &mut Vec<EntryID>) {
         match info {
