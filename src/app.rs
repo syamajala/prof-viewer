@@ -222,6 +222,27 @@ struct IntervalSelectState {
     stop_error: Option<IntervalSelectError>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+enum ItemLinkNavigationMode {
+    Zoom,
+    Pan,
+}
+
+impl Default for ItemLinkNavigationMode {
+    fn default() -> Self {
+        ItemLinkNavigationMode::Zoom
+    }
+}
+
+impl ItemLinkNavigationMode {
+    fn label_text(&self) -> &'static str {
+        match *self {
+            ItemLinkNavigationMode::Zoom => "Zoom to Item",
+            ItemLinkNavigationMode::Pan => "Pan to Item",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 struct Context {
     #[serde(skip)]
@@ -251,6 +272,8 @@ struct Context {
     // only know it when we render slots. So stash it here.
     #[serde(skip)]
     slot_rect: Option<Rect>,
+
+    item_link_mode: ItemLinkNavigationMode,
 
     toggle_dark_mode: bool,
 
@@ -2064,7 +2087,20 @@ impl ProfApp {
         }
     }
 
-    fn display_bindings(ui: &mut egui::Ui) {
+    fn display_controls(ui: &mut egui::Ui, mode: &mut ItemLinkNavigationMode) {
+        fn show_row_ui(
+            body: &mut egui_extras::TableBody<'_>,
+            label: &str,
+            thunk: impl FnMut(&mut egui::Ui),
+        ) {
+            body.row(20.0, |mut row| {
+                row.col(|ui| {
+                    ui.strong(label);
+                });
+                row.col(thunk);
+            });
+        }
+
         TableBuilder::new(ui)
             .striped(true)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -2072,13 +2108,8 @@ impl ProfApp {
             .column(Column::remainder())
             .body(|mut body| {
                 let mut show_row = |a, b| {
-                    body.row(20.0, |mut row| {
-                        row.col(|ui| {
-                            ui.strong(a);
-                        });
-                        row.col(|ui| {
-                            ui.label(b);
-                        });
+                    show_row_ui(&mut body, a, |ui| {
+                        ui.label(b);
                     });
                 };
                 show_row("Zoom to Interval", "Click and Drag");
@@ -2095,6 +2126,14 @@ impl ProfApp {
                 show_row("Shrink Vertical Spacing", "Ctrl + Alt + Minus");
                 show_row("Reset Vertical Spacing", "Ctrl + Alt + 0");
                 show_row("Toggle This Window", "H");
+                show_row_ui(&mut body, "Item Link Zoom or Pan", |ui: &mut _| {
+                    egui::ComboBox::from_id_source("Item Link Zoom or Pan")
+                        .selected_text(format!("{:?}", mode))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(mode, ItemLinkNavigationMode::Zoom, "Zoom");
+                            ui.selectable_value(mode, ItemLinkNavigationMode::Pan, "Pan");
+                        });
+                });
             });
     }
 
@@ -2109,22 +2148,33 @@ impl ProfApp {
         layout.size().y + style.spacing.item_spacing.y * 2.0
     }
 
-    fn render_field_as_text(field: &Field) -> Vec<(String, Option<&'static str>)> {
+    fn render_field_as_text(
+        field: &Field,
+        mode: ItemLinkNavigationMode,
+    ) -> Vec<(String, Option<&'static str>)> {
         match field {
             Field::I64(value) => vec![(format!("{value}"), None)],
             Field::U64(value) => vec![(format!("{value}"), None)],
             Field::String(value) => vec![(value.to_string(), None)],
             Field::Interval(value) => vec![(format!("{value}"), None)],
             Field::ItemLink(ItemLink { title, .. }) => {
-                vec![(title.to_string(), Some("Zoom to Item"))]
+                vec![(title.to_string(), Some(mode.label_text()))]
             }
-            Field::Vec(fields) => fields.iter().flat_map(Self::render_field_as_text).collect(),
+            Field::Vec(fields) => fields
+                .iter()
+                .flat_map(|f| Self::render_field_as_text(f, mode))
+                .collect(),
             Field::Empty => vec![("".to_string(), None)],
         }
     }
 
-    fn compute_field_height(field: &Field, width: f32, ui: &mut egui::Ui) -> f32 {
-        let text = Self::render_field_as_text(field);
+    fn compute_field_height(
+        field: &Field,
+        width: f32,
+        mode: ItemLinkNavigationMode,
+        ui: &mut egui::Ui,
+    ) -> f32 {
+        let text = Self::render_field_as_text(field, mode);
         text.into_iter()
             .map(|(mut v, b)| {
                 // Hack: if we have button text, guess how much space it will need
@@ -2140,6 +2190,7 @@ impl ProfApp {
 
     fn render_field_as_ui(
         field: &Field,
+        mode: ItemLinkNavigationMode,
         ui: &mut egui::Ui,
     ) -> Option<(ItemUID, ItemLocator, Interval)> {
         let mut result = None;
@@ -2161,7 +2212,7 @@ impl ProfApp {
                 interval,
                 entry_id,
             }) => {
-                if label_button(ui, title, "Zoom to Item") {
+                if label_button(ui, title, mode.label_text()) {
                     result = Some((
                         *item_uid,
                         ItemLocator {
@@ -2176,7 +2227,7 @@ impl ProfApp {
                 ui.vertical(|ui| {
                     for f in fields {
                         ui.horizontal(|ui| {
-                            if let Some(x) = Self::render_field_as_ui(f, ui) {
+                            if let Some(x) = Self::render_field_as_ui(f, mode, ui) {
                                 result = Some(x);
                             }
                         });
@@ -2208,14 +2259,15 @@ impl ProfApp {
                     let width = body.widths()[1];
 
                     let ui = body.ui_mut();
-                    let height = Self::compute_field_height(field, width, ui);
+                    let height = Self::compute_field_height(field, width, cx.item_link_mode, ui);
 
                     body.row(height, |mut row| {
                         row.col(|ui| {
                             ui.strong(k);
                         });
                         row.col(|ui| {
-                            if let Some(x) = Self::render_field_as_ui(field, ui) {
+                            if let Some(x) = Self::render_field_as_ui(field, cx.item_link_mode, ui)
+                            {
                                 result = Some(x);
                             }
                         });
@@ -2232,7 +2284,7 @@ impl ProfApp {
                 }
             });
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-            if ui.button("Zoom to Item").clicked() {
+            if ui.button(cx.item_link_mode.label_text()).clicked() {
                 result = Some((
                     item_meta.item_uid,
                     item_loc.clone(),
@@ -2393,7 +2445,9 @@ impl eframe::App for ProfApp {
 
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        ui.label(format!("FPS: {_fps:.0}"));
+                        if cx.debug {
+                            ui.label(format!("FPS: {_fps:.0}"));
+                        }
                     }
                 });
 
@@ -2438,7 +2492,7 @@ impl eframe::App for ProfApp {
         egui::Window::new("Controls")
             .open(&mut cx.show_controls)
             .resizable(false)
-            .show(ctx, Self::display_bindings);
+            .show(ctx, |ui| Self::display_controls(ui, &mut cx.item_link_mode));
 
         for window in windows.iter_mut() {
             let mut zoom_target = None;
@@ -2467,7 +2521,16 @@ impl eframe::App for ProfApp {
                     enabled
                 });
             if let Some((item_uid, item_loc, interval)) = zoom_target {
-                let interval = interval.grow(interval.duration_ns() / 20);
+                let interval = match cx.item_link_mode {
+                    // In Zoom mode, put the item in the center of the view
+                    // interval with a small amount of padding on either side.
+                    ItemLinkNavigationMode::Zoom => interval.grow(interval.duration_ns() / 20),
+                    // In Pan mode, maintain the current window size but shift
+                    // the center to place the item in the middle of it.
+                    ItemLinkNavigationMode::Pan => cx
+                        .view_interval
+                        .translate(interval.center().0 - cx.view_interval.center().0),
+                };
                 ProfApp::zoom(cx, interval);
                 window.expand_slot(&item_loc.entry_id);
                 window.config.scroll_to_item = Some(item_loc);
