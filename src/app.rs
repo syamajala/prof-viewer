@@ -222,16 +222,11 @@ struct IntervalSelectState {
     stop_error: Option<IntervalSelectError>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 enum ItemLinkNavigationMode {
+    #[default]
     Zoom,
     Pan,
-}
-
-impl Default for ItemLinkNavigationMode {
-    fn default() -> Self {
-        ItemLinkNavigationMode::Zoom
-    }
 }
 
 impl ItemLinkNavigationMode {
@@ -1906,7 +1901,7 @@ impl ProfApp {
         let action = ctx.input(|i| {
             if i.modifiers.ctrl {
                 if i.modifiers.alt {
-                    if i.key_pressed(egui::Key::PlusEquals) {
+                    if i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals) {
                         Actions::ExpandVertical
                     } else if i.key_pressed(egui::Key::Minus) {
                         Actions::ShrinkVertical
@@ -1915,7 +1910,7 @@ impl ProfApp {
                     } else {
                         Actions::NoAction
                     }
-                } else if i.key_pressed(egui::Key::PlusEquals) {
+                } else if i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals) {
                     Actions::ZoomIn
                 } else if i.key_pressed(egui::Key::Minus) {
                     Actions::ZoomOut
@@ -2380,7 +2375,7 @@ impl eframe::App for ProfApp {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Quit").clicked() {
-                        _frame.close();
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
             });
