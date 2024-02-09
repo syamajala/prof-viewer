@@ -25,7 +25,9 @@
 - [x] Task detail view
 - [x] Include in the window title the directory where the profile logs are
 - [X] Horizontal pan (using keyboard arrow keys)
-- [ ] Horizontal pan (including drag, touchpad, horizontal scroll wheel)
+- [x] Report both field IDs and field names
+- [x] On each instance box, add a "zoom to item" button to the "initiator" (i.e. the task that created that instance?)
+- [ ] Horizontal pan (via click and drag, touchpad, or horizontal scroll wheel)
 - [ ] Allow horizontal panning past the start/end of the profile, but not so much that none of the actual profile is visible anymore. Out-of-bounds areas should get a different background color.
 - [ ] Keyboard bindings (e.g., arrow keys to select panels, space bar to toggle expand/collapse, ESC key to close popups)
 - [ ] Editable key bindings?
@@ -50,8 +52,6 @@
 - [ ] Thousands separator on large numbers
 - [ ] Add average bandwidth measure on copies
 - [ ] Add button for "export current view to image"
-- [ ] Report both field IDs and field names
-- [ ] On each instance box, add a "zoom to item" button to the "initiator" (i.e. the task that created that instance?)
 - [ ] Parse provenance information, according to https://github.com/StanfordLegion/legion/issues/1554
 - [ ] In server mode, add a form on the top-level served page, where the user can specify which files to open, instead of having to enter this information manually on the URL as a GET `url=` parameter
 - [ ] Vertical scrolling within the "control widgets" group
