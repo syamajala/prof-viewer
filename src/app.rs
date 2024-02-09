@@ -89,6 +89,17 @@ struct ItemLocator {
     // (note: reversed, because we're in screen space)
     entry_id: EntryID,
     irow: Option<usize>,
+
+    // If we can't find the item on the initial attempt, we track the ItemUID
+    // and attempt to find it once the tile loads
+    item_uid: ItemUID,
+}
+
+#[derive(Debug, Clone)]
+struct ItemDetail {
+    // We populate metadata lazily, so there can be a delay until this is full
+    meta: Option<ItemMeta>,
+    loc: ItemLocator,
 }
 
 #[derive(Debug, Clone)]
@@ -148,12 +159,13 @@ struct Config {
     search_state: SearchState,
 
     // When the user clicks on an item, we put it here
-    items_selected: BTreeMap<ItemUID, (ItemMeta, ItemLocator)>,
+    items_selected: BTreeMap<ItemUID, ItemDetail>,
 
     // When the user clicks "Zoom to Item" or a search result, we put it here
     scroll_to_item: Option<ItemLocator>,
-    // Same, but keep it around to highlight the item after arrival
-    scroll_to_item_uid: Option<ItemUID>,
+    // Sometimes, we cannot find the correct row to scroll to. In this case we
+    // populate the following field to track the re-scroll when the item is found
+    scroll_to_item_retry: Option<ItemLocator>,
 
     last_request_interval: Option<Interval>,
     request_tile_cache: Vec<TileID>,
@@ -307,8 +319,9 @@ trait Entry {
     fn label_text(&self) -> &str;
     fn hover_text(&self) -> &str;
 
-    fn find_slot(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot>;
-    fn find_summary(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary>;
+    fn find_slot(&self, entry_id: &EntryID, level: u64) -> Option<&Slot>;
+    fn find_slot_mut(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot>;
+    fn find_summary_mut(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary>;
 
     fn expand_slot(&mut self, entry_id: &EntryID, level: u64);
 
@@ -407,11 +420,15 @@ impl Entry for Summary {
         "Utilization Plot of Average Usage Over Time"
     }
 
-    fn find_slot(&mut self, _entry_id: &EntryID, _level: u64) -> Option<&mut Slot> {
+    fn find_slot(&self, _entry_id: &EntryID, _level: u64) -> Option<&Slot> {
         unreachable!()
     }
 
-    fn find_summary(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary> {
+    fn find_slot_mut(&mut self, _entry_id: &EntryID, _level: u64) -> Option<&mut Slot> {
+        unreachable!()
+    }
+
+    fn find_summary_mut(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary> {
         assert_eq!(entry_id.level(), level);
         assert_eq!(entry_id.index(level - 1)?, EntryIndex::Summary);
         Some(self)
@@ -697,8 +714,7 @@ impl Slot {
                     interact_item = Some((row, item_idx, item_rect, tile_id));
                 }
 
-                let highlight = config.items_selected.contains_key(&item.item_uid)
-                    || config.scroll_to_item_uid == Some(item.item_uid);
+                let highlight = config.items_selected.contains_key(&item.item_uid);
 
                 let mut color = item.color;
                 if !config.search_state.query.is_empty() {
@@ -741,11 +757,17 @@ impl Slot {
                         let irow = Some(rows as usize - row - 1);
                         match config.items_selected.entry(item_meta.item_uid) {
                             std::collections::btree_map::Entry::Vacant(e) => {
-                                e.insert((item_meta.clone(), ItemLocator { entry_id, irow }));
+                                e.insert(ItemDetail {
+                                    meta: Some(item_meta.clone()),
+                                    loc: ItemLocator {
+                                        entry_id,
+                                        irow,
+                                        item_uid: item_meta.item_uid,
+                                    },
+                                });
                             }
                             std::collections::btree_map::Entry::Occupied(e) => {
                                 e.remove_entry();
-                                config.scroll_to_item_uid = None;
                             }
                         }
                     }
@@ -791,13 +813,19 @@ impl Entry for Slot {
         &self.long_name
     }
 
-    fn find_slot(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot> {
+    fn find_slot(&self, entry_id: &EntryID, level: u64) -> Option<&Slot> {
         assert_eq!(entry_id.level(), level);
         assert!(entry_id.slot_index(level - 1).is_some());
         Some(self)
     }
 
-    fn find_summary(&mut self, _entry_id: &EntryID, _level: u64) -> Option<&mut Summary> {
+    fn find_slot_mut(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot> {
+        assert_eq!(entry_id.level(), level);
+        assert!(entry_id.slot_index(level - 1).is_some());
+        Some(self)
+    }
+
+    fn find_summary_mut(&mut self, _entry_id: &EntryID, _level: u64) -> Option<&mut Summary> {
         unreachable!()
     }
 
@@ -996,19 +1024,25 @@ impl<S: Entry> Entry for Panel<S> {
         &self.long_name
     }
 
-    fn find_slot(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot> {
+    fn find_slot(&self, entry_id: &EntryID, level: u64) -> Option<&Slot> {
         self.slots
-            .get_mut(entry_id.slot_index(level)? as usize)?
+            .get(entry_id.slot_index(level)? as usize)?
             .find_slot(entry_id, level + 1)
     }
 
-    fn find_summary(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary> {
+    fn find_slot_mut(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Slot> {
+        self.slots
+            .get_mut(entry_id.slot_index(level)? as usize)?
+            .find_slot_mut(entry_id, level + 1)
+    }
+
+    fn find_summary_mut(&mut self, entry_id: &EntryID, level: u64) -> Option<&mut Summary> {
         if level < entry_id.level() - 1 {
             self.slots
                 .get_mut(entry_id.slot_index(level)? as usize)?
-                .find_summary(entry_id, level + 1)
+                .find_summary_mut(entry_id, level + 1)
         } else {
-            self.summary.as_mut()?.find_summary(entry_id, level + 1)
+            self.summary.as_mut()?.find_summary_mut(entry_id, level + 1)
         }
     }
 
@@ -1337,7 +1371,7 @@ impl Config {
             search_state,
             items_selected: BTreeMap::new(),
             scroll_to_item: None,
-            scroll_to_item_uid: None,
+            scroll_to_item_retry: None,
             last_request_interval: None,
             request_tile_cache: Vec::new(),
         }
@@ -1380,6 +1414,18 @@ impl Config {
             .collect();
         self.request_tile_cache.clone()
     }
+
+    fn scroll_to_item(&mut self, item_loc: ItemLocator) {
+        self.scroll_to_item = Some(item_loc.clone());
+        self.scroll_to_item_retry = None;
+
+        self.items_selected
+            .entry(item_loc.item_uid)
+            .or_insert_with(|| ItemDetail {
+                meta: None,
+                loc: item_loc,
+            });
+    }
 }
 
 impl Window {
@@ -1391,16 +1437,61 @@ impl Window {
         }
     }
 
-    fn find_slot(&mut self, entry_id: &EntryID) -> Option<&mut Slot> {
+    fn find_slot(&self, entry_id: &EntryID) -> Option<&Slot> {
         self.panel.find_slot(entry_id, 0)
     }
 
-    fn find_summary(&mut self, entry_id: &EntryID) -> Option<&mut Summary> {
-        self.panel.find_summary(entry_id, 0)
+    fn find_slot_mut(&mut self, entry_id: &EntryID) -> Option<&mut Slot> {
+        self.panel.find_slot_mut(entry_id, 0)
+    }
+
+    fn find_summary_mut(&mut self, entry_id: &EntryID) -> Option<&mut Summary> {
+        self.panel.find_summary_mut(entry_id, 0)
     }
 
     fn expand_slot(&mut self, entry_id: &EntryID) {
         self.panel.expand_slot(entry_id, 0);
+    }
+
+    fn inflate_meta(&mut self, entry_id: &EntryID, cx: &mut Context) {
+        // Use the panel version directly to avoid a mutability conflict
+        let slot = self.panel.find_slot_mut(entry_id, 0).unwrap();
+        slot.inflate_meta(&mut self.config, cx);
+    }
+
+    fn find_item_irow(&self, entry_id: &EntryID, item_uid: ItemUID) -> Option<usize> {
+        let slot = self.find_slot(entry_id)?;
+        for tile in slot.tiles.values() {
+            let Some(tile) = tile else {
+                continue;
+            };
+            for (row, items) in tile.items.iter().enumerate() {
+                for item in items {
+                    if item.item_uid == item_uid {
+                        let rows = tile.items.len();
+                        return Some(rows - row - 1);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn find_item_meta(&self, entry_id: &EntryID, item_uid: ItemUID) -> Option<&ItemMeta> {
+        let slot = self.find_slot(entry_id)?;
+        for tile in slot.tile_metas.values() {
+            let Some(tile) = tile else {
+                continue;
+            };
+            for items in &tile.items {
+                for item in items {
+                    if item.item_uid == item_uid {
+                        return Some(item);
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn content(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
@@ -1418,14 +1509,46 @@ impl Window {
 
                 let rect = Rect::from_min_size(ui.min_rect().min, viewport.size());
 
-                if let Some(ItemLocator { ref entry_id, irow }) = self.config.scroll_to_item {
-                    let irow = irow.unwrap_or(0); // FIXME (Elliott): zoom to middle of entry
-                    let prefix_height = self.panel.height(Some(entry_id), &self.config, cx);
+                let scroll_to = |irow, prefix_height| {
                     let mut item_rect =
                         rect.translate(Vec2::new(0.0, prefix_height + irow as f32 * cx.row_height));
                     item_rect.set_height(cx.row_height);
                     ui.scroll_to_rect(item_rect, Some(egui::Align::Center));
+                };
+
+                // First scroll attempt goes to the processor
+                if let Some(ItemLocator {
+                    ref entry_id, irow, ..
+                }) = self.config.scroll_to_item
+                {
+                    let prefix_height = self.panel.height(Some(entry_id), &self.config, cx);
+                    scroll_to(irow.unwrap_or(0), prefix_height);
+                    if irow.is_none() {
+                        let mut item = None;
+                        std::mem::swap(&mut item, &mut self.config.scroll_to_item);
+                        self.config.scroll_to_item_retry = item;
+                    }
                     self.config.scroll_to_item = None;
+                }
+
+                // If we're able to find the item, we do a second scroll to the item
+                let mut found_irow = None;
+                if let Some(ItemLocator {
+                    ref entry_id,
+                    irow,
+                    item_uid,
+                }) = self.config.scroll_to_item_retry
+                {
+                    assert!(irow.is_none());
+                    found_irow = self.find_item_irow(entry_id, item_uid);
+                }
+
+                if let Some(ItemLocator { ref entry_id, .. }) = self.config.scroll_to_item_retry {
+                    if let Some(irow) = found_irow {
+                        let prefix_height = self.panel.height(Some(entry_id), &self.config, cx);
+                        scroll_to(irow, prefix_height);
+                        self.config.scroll_to_item_retry = None;
+                    }
                 }
 
                 // Root panel has no label
@@ -1669,6 +1792,7 @@ impl Window {
 
         self.config.search_state.build_entry_tree();
 
+        let mut scroll_target = None;
         ScrollArea::vertical()
             // Hack: estimate size of bottom UI.
             .max_height(ui.available_height() - 70.0)
@@ -1696,13 +1820,11 @@ impl Window {
                                                         .interval
                                                         .grow(item.interval.duration_ns() / 20);
                                                     ProfApp::zoom(cx, interval);
-                                                    self.config.scroll_to_item =
-                                                        Some(ItemLocator {
-                                                            entry_id: level2_slot.entry_id.clone(),
-                                                            irow: Some(item.irow),
-                                                        });
-                                                    self.config.scroll_to_item_uid =
-                                                        Some(item.item_uid);
+                                                    scroll_target = Some(ItemLocator {
+                                                        entry_id: level2_slot.entry_id.clone(),
+                                                        irow: Some(item.irow),
+                                                        item_uid: item.item_uid,
+                                                    });
                                                     level2_slot.expanded = true;
                                                     level1_slot.expanded = true;
                                                     level0_slot.expanded = true;
@@ -1716,6 +1838,9 @@ impl Window {
                     });
                 }
             });
+        if let Some(target) = scroll_target {
+            self.config.scroll_to_item(target);
+        }
     }
 
     fn search_controls(&mut self, ui: &mut egui::Ui, cx: &mut Context) {
@@ -2187,7 +2312,7 @@ impl ProfApp {
         field: &Field,
         mode: ItemLinkNavigationMode,
         ui: &mut egui::Ui,
-    ) -> Option<(ItemUID, ItemLocator, Interval)> {
+    ) -> Option<(ItemLocator, Interval)> {
         let mut result = None;
         let label = |ui: &mut egui::Ui, v| {
             ui.add(egui::Label::new(v).wrap(true));
@@ -2209,10 +2334,10 @@ impl ProfApp {
             }) => {
                 if label_button(ui, title, mode.label_text()) {
                     result = Some((
-                        *item_uid,
                         ItemLocator {
                             entry_id: entry_id.clone(),
                             irow: None,
+                            item_uid: *item_uid,
                         },
                         *interval,
                     ));
@@ -2234,14 +2359,20 @@ impl ProfApp {
         result
     }
 
-    fn display_task_details(
+    fn display_item_details(
         ui: &mut egui::Ui,
-        item_meta: &ItemMeta,
-        item_loc: &ItemLocator,
+        item: &ItemDetail,
         field_schema: &FieldSchema,
         cx: &Context,
-    ) -> Option<(ItemUID, ItemLocator, Interval)> {
-        let mut result: Option<(ItemUID, ItemLocator, Interval)> = None;
+    ) -> Option<(ItemLocator, Interval)> {
+        let Some(ref item_meta) = item.meta else {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                ui.label("Item will be displayed once data is available.");
+            });
+            return None;
+        };
+
+        let mut result: Option<(ItemLocator, Interval)> = None;
         TableBuilder::new(ui)
             .striped(true)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -2280,11 +2411,7 @@ impl ProfApp {
             });
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
             if ui.button(cx.item_link_mode.label_text()).clicked() {
-                result = Some((
-                    item_meta.item_uid,
-                    item_loc.clone(),
-                    item_meta.original_interval,
-                ));
+                result = Some((item.loc.clone(), item_meta.original_interval));
             }
         });
         result
@@ -2327,7 +2454,7 @@ impl eframe::App for ProfApp {
 
         for window in windows.iter_mut() {
             for tile in window.config.data_source.get_summary_tiles() {
-                if let Some(entry) = window.find_summary(&tile.entry_id) {
+                if let Some(entry) = window.find_summary_mut(&tile.entry_id) {
                     // If the entry doesn't exist, we already zoomed away and
                     // are no longer interested in this tile.
                     entry
@@ -2338,7 +2465,7 @@ impl eframe::App for ProfApp {
             }
 
             for tile in window.config.data_source.get_slot_tiles() {
-                if let Some(entry) = window.find_slot(&tile.entry_id) {
+                if let Some(entry) = window.find_slot_mut(&tile.entry_id) {
                     // If the entry doesn't exist, we already zoomed away and
                     // are no longer interested in this tile.
                     entry
@@ -2349,7 +2476,7 @@ impl eframe::App for ProfApp {
             }
 
             for tile in window.config.data_source.get_slot_meta_tiles() {
-                if let Some(entry) = window.find_slot(&tile.entry_id) {
+                if let Some(entry) = window.find_slot_mut(&tile.entry_id) {
                     // If the entry doesn't exist, we already zoomed away and
                     // are no longer interested in this tile.
                     entry
@@ -2491,31 +2618,42 @@ impl eframe::App for ProfApp {
 
         for window in windows.iter_mut() {
             let mut zoom_target = None;
-            window
-                .config
-                .items_selected
-                .retain(|_, (item_meta, item_loc)| {
-                    let mut enabled = true;
-                    let short_title: String = item_meta.title.chars().take(50).collect();
-                    egui::Window::new(short_title)
-                        .id(egui::Id::new(item_meta.item_uid.0))
-                        .open(&mut enabled)
-                        .resizable(true)
-                        .show(ctx, |ui| {
-                            let target = Self::display_task_details(
-                                ui,
-                                item_meta,
-                                item_loc,
-                                &window.config.field_schema,
-                                cx,
-                            );
-                            if target.is_some() {
-                                zoom_target = target;
-                            }
-                        });
-                    enabled
-                });
-            if let Some((item_uid, item_loc, interval)) = zoom_target {
+
+            // Hack: work around mutability conflict
+            let mut items_selected = BTreeMap::new();
+            std::mem::swap(&mut items_selected, &mut window.config.items_selected);
+            items_selected.retain(|_, item| {
+                // Populate the item meta if it's not already there
+                if item.meta.is_none() {
+                    window.inflate_meta(&item.loc.entry_id, cx);
+                    if let Some(meta) = window.find_item_meta(&item.loc.entry_id, item.loc.item_uid)
+                    {
+                        item.meta = Some(meta.clone());
+                    }
+                }
+
+                let short_title = match &item.meta {
+                    Some(meta) => meta.title.chars().take(50).collect(),
+                    None => format!("Item <Item UID: {}>", item.loc.item_uid.0),
+                };
+
+                let mut enabled = true;
+                egui::Window::new(short_title)
+                    .id(egui::Id::new(item.loc.item_uid.0))
+                    .open(&mut enabled)
+                    .resizable(true)
+                    .show(ctx, |ui| {
+                        let target =
+                            Self::display_item_details(ui, item, &window.config.field_schema, cx);
+                        if target.is_some() {
+                            zoom_target = target;
+                        }
+                    });
+                enabled
+            });
+            std::mem::swap(&mut items_selected, &mut window.config.items_selected);
+
+            if let Some((item_loc, interval)) = zoom_target {
                 let interval = match cx.item_link_mode {
                     // In Zoom mode, put the item in the center of the view
                     // interval with a small amount of padding on either side.
@@ -2528,8 +2666,7 @@ impl eframe::App for ProfApp {
                 };
                 ProfApp::zoom(cx, interval);
                 window.expand_slot(&item_loc.entry_id);
-                window.config.scroll_to_item = Some(item_loc);
-                window.config.scroll_to_item_uid = Some(item_uid);
+                window.config.scroll_to_item(item_loc);
             }
         }
 
