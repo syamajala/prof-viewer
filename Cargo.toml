@@ -8,7 +8,7 @@ homepage = "https://github.com/StanfordLegion/prof-viewer"
 repository = "https://github.com/StanfordLegion/prof-viewer"
 readme = "README.md"
 keywords = ["legion", "legion-prof", "profiler"]
-categories = ["development-tools"]
+categories = ["development-tools::profiling"]
 license = "Apache-2.0"
 
 edition = "2021"
