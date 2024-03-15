@@ -86,4 +86,5 @@ This will generate a static site under `dist` that you can upload. Note that
 
 This repository is configured via GitHub Actions to deploy automatically on
 each push to the `master` branch. You can test it at
-<https://legion.stanford.edu/prof-viewer/>.
+<https://legion.stanford.edu/prof-viewer/?url=https://...> where
+`https://...` is the URL of the profile to load.
