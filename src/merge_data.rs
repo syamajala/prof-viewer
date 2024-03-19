@@ -88,10 +88,12 @@ impl MergeDeferredDataSource {
         let first_info = source_infos.first().unwrap();
         let tile_set = first_info.tile_set.clone();
         let field_schema = first_info.field_schema.clone();
+        let warning_message = first_info.warning_message.clone();
 
         for info in &source_infos {
             assert_eq!(tile_set, info.tile_set);
             assert_eq!(field_schema, info.field_schema);
+            assert_eq!(warning_message, info.warning_message);
         }
 
         // Merge remaining fields
@@ -112,6 +114,7 @@ impl MergeDeferredDataSource {
             interval,
             tile_set,
             field_schema,
+            warning_message,
         }
     }
 
@@ -390,6 +393,7 @@ mod tests {
             interval: Interval::new(Timestamp(0), Timestamp(1000)),
             tile_set: TileSet { tiles: Vec::new() },
             field_schema: FieldSchema::new(),
+            warning_message: None,
         };
         let second = DataSourceInfo {
             entry_info: EntryInfo::Panel {
@@ -405,6 +409,7 @@ mod tests {
             interval: Interval::new(Timestamp(0), Timestamp(2000)),
             tile_set: TileSet { tiles: Vec::new() },
             field_schema: FieldSchema::new(),
+            warning_message: None,
         };
 
         let infos = vec![first, second];
