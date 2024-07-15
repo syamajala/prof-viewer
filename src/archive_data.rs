@@ -254,8 +254,9 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
             }
         });
 
-        std::fs::write(self.path.join("index.html"),
-                       "<html>
+        std::fs::write(
+            self.path.join("index.html"),
+            "<html>
 <script>
 window.onload = function() {
   var prof = location
@@ -265,7 +266,9 @@ window.onload = function() {
   window.location.replace(\"https://legion.stanford.edu/prof-viewer/?url=\"+prof.href);
 }
 </script>
-</html>")?;
+</html>
+",
+        )?;
 
         Ok(())
     }
