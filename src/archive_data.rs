@@ -254,6 +254,22 @@ impl<T: DeferredDataSource> DataSourceArchiveWriter<T> {
             }
         });
 
+        std::fs::write(
+            self.path.join("index.html"),
+            "<html>
+<script>
+window.onload = function() {
+  var prof = location
+  if(location.protocol !== 'https:') {
+    prof = location.replace(`https:${location.href.substring(location.protocol.length)}`);
+  }
+  window.location.replace(\"https://legion.stanford.edu/prof-viewer/?url=\"+prof.href);
+}
+</script>
+</html>
+",
+        )?;
+
         Ok(())
     }
 }
