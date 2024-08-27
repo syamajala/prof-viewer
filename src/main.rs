@@ -216,8 +216,13 @@ impl RandomDataSource {
                             (
                                 self.interval_field,
                                 Field::Interval(Interval::new(start, stop)),
+                                None,
                             ),
-                            (self.item_uid_field, Field::U64(item_uid.0)),
+                            (
+                                self.item_uid_field,
+                                Field::U64(item_uid.0),
+                                Some(Color32::RED),
+                            ),
                         ],
                     });
                 }
